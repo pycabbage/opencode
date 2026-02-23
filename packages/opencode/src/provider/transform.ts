@@ -44,6 +44,28 @@ export namespace ProviderTransform {
     return undefined
   }
 
+  /**
+   * Determines if a model supports assistant message prefill.
+   * Claude Opus 4.6 and Sonnet 4.6 models do not support prefill across all providers.
+   */
+  export function supportsAssistantPrefill(model: Provider.Model): boolean {
+    const modelId = model.api.id.toLowerCase()
+
+    // Claude 4.6 models (opus and sonnet) don't support prefill
+    if (
+      modelId.includes("claude") &&
+      (modelId.includes("opus-4.6") ||
+        modelId.includes("opus-4-6") ||
+        modelId.includes("sonnet-4.6") ||
+        modelId.includes("sonnet-4-6"))
+    ) {
+      return false
+    }
+
+    // Most other models/providers support prefill by default
+    return true
+  }
+
   function normalizeMessages(
     msgs: ModelMessage[],
     model: Provider.Model,

@@ -2756,3 +2756,87 @@ describe("ProviderTransform.variants", () => {
     })
   })
 })
+
+describe("ProviderTransform.supportsAssistantPrefill", () => {
+  function createModel(providerID: string, npm: string, apiId: string) {
+    return {
+      id: `${providerID}/${apiId}`,
+      providerID,
+      api: {
+        id: apiId,
+        url: "https://api.example.com",
+        npm,
+      },
+      name: "Test Model",
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: true,
+        toolcall: true,
+        input: { text: true, audio: false, image: true, video: false, pdf: true },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: false,
+      },
+      cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+      limit: { context: 100000, output: 8192 },
+      status: "active" as const,
+      options: {},
+      headers: {},
+    }
+  }
+
+  test("returns false for GitHub Copilot Claude Opus 4.6 (dot notation)", () => {
+    const model = createModel("github-copilot", "@ai-sdk/github-copilot", "claude-opus-4.6")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(false)
+  })
+
+  test("returns false for GitHub Copilot Claude Opus 4.6 (dash notation)", () => {
+    const model = createModel("github-copilot", "@ai-sdk/github-copilot", "claude-opus-4-6")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(false)
+  })
+
+  test("returns false for GitHub Copilot Claude Sonnet 4.6", () => {
+    const model = createModel("github-copilot", "@ai-sdk/github-copilot", "claude-sonnet-4.6")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(false)
+  })
+
+  test("returns false for Anthropic Claude Opus 4.6", () => {
+    const model = createModel("anthropic", "@ai-sdk/anthropic", "claude-opus-4.6")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(false)
+  })
+
+  test("returns false for Anthropic Claude Sonnet 4.6", () => {
+    const model = createModel("anthropic", "@ai-sdk/anthropic", "claude-sonnet-4-6")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(false)
+  })
+
+  test("returns false for OpenRouter Claude Opus 4.6", () => {
+    const model = createModel("openrouter", "@openrouter/ai-sdk-provider", "anthropic/claude-opus-4.6")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(false)
+  })
+
+  test("returns true for Anthropic Claude 3.5 Sonnet (non-4.6)", () => {
+    const model = createModel("anthropic", "@ai-sdk/anthropic", "claude-3-5-sonnet-20241022")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(true)
+  })
+
+  test("returns true for Anthropic Claude Opus 4.5", () => {
+    const model = createModel("anthropic", "@ai-sdk/anthropic", "claude-opus-4-5-20251101")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(true)
+  })
+
+  test("returns true for OpenAI models", () => {
+    const model = createModel("openai", "@ai-sdk/openai", "gpt-4")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(true)
+  })
+
+  test("returns true for GitHub Copilot non-Claude models", () => {
+    const model = createModel("github-copilot", "@ai-sdk/github-copilot", "gpt-4")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(true)
+  })
+
+  test("returns true for generic models", () => {
+    const model = createModel("custom", "@ai-sdk/openai-compatible", "custom-model")
+    expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(true)
+  })
+})
