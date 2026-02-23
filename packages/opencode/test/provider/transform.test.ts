@@ -2782,6 +2782,7 @@ describe("ProviderTransform.supportsAssistantPrefill", () => {
       status: "active" as const,
       options: {},
       headers: {},
+      release_date: "2025-01-01",
     }
   }
 
