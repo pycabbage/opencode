@@ -66,11 +66,27 @@ export namespace ProviderTransform {
     return true
   }
 
+  /**
+   * Strip trailing assistant messages for models that don't support prefill.
+   * This handles both the isLastStep case and any other scenario where the
+   * conversation ends with an assistant message mid-session.
+   */
+  function stripTrailingAssistant(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
+    if (supportsAssistantPrefill(model)) return msgs
+    while (msgs.length > 0 && msgs[msgs.length - 1].role === "assistant") {
+      msgs = msgs.slice(0, -1)
+    }
+    return msgs
+  }
+
   function normalizeMessages(
     msgs: ModelMessage[],
     model: Provider.Model,
     options: Record<string, unknown>,
   ): ModelMessage[] {
+    // Strip trailing assistant messages for models that don't support prefill
+    msgs = stripTrailingAssistant(msgs, model)
+
     // Anthropic rejects messages with empty content - filter out empty string messages
     // and remove empty text/reasoning parts from array content
     if (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/amazon-bedrock") {

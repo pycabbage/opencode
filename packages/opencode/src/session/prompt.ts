@@ -696,7 +696,7 @@ export namespace SessionPrompt {
           ...(isLastStep
             ? [
                 {
-                  role: ProviderTransform.supportsAssistantPrefill(model) ? ("assistant" as const) : ("user" as const),
+                  role: "assistant" as const,
                   content: MAX_STEPS,
                 },
               ]

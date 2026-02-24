@@ -2841,3 +2841,72 @@ describe("ProviderTransform.supportsAssistantPrefill", () => {
     expect(ProviderTransform.supportsAssistantPrefill(model)).toBe(true)
   })
 })
+
+describe("ProviderTransform.message - strip trailing assistant for Claude 4.6", () => {
+  const claude46 = {
+    id: "anthropic/claude-opus-4-6",
+    providerID: "anthropic",
+    api: { id: "claude-opus-4-6", url: "https://api.anthropic.com", npm: "@ai-sdk/anthropic" },
+    name: "Claude Opus 4.6",
+    capabilities: {
+      temperature: true,
+      reasoning: false,
+      attachment: true,
+      toolcall: true,
+      input: { text: true, audio: false, image: true, video: false, pdf: true },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    limit: { context: 200000, output: 32000 },
+    status: "active" as const,
+    options: {},
+    headers: {},
+    release_date: "2025-01-01",
+  }
+
+  const claude35 = {
+    ...claude46,
+    id: "anthropic/claude-3-5-sonnet-20241022",
+    api: { id: "claude-3-5-sonnet-20241022", url: "https://api.anthropic.com", npm: "@ai-sdk/anthropic" },
+    name: "Claude 3.5 Sonnet",
+  }
+
+  const msgs = [
+    { role: "user" as const, content: "hello" },
+    { role: "assistant" as const, content: "hi" },
+    { role: "user" as const, content: "do a thing" },
+    { role: "assistant" as const, content: "done" },
+  ]
+
+  test("strips trailing assistant message for Claude 4.6", () => {
+    const result = ProviderTransform.message(msgs, claude46, {})
+    expect(result[result.length - 1].role).toBe("user")
+  })
+
+  test("preserves trailing assistant message for Claude 3.5 (supports prefill)", () => {
+    const result = ProviderTransform.message(msgs, claude35, {})
+    expect(result[result.length - 1].role).toBe("assistant")
+  })
+
+  test("strips multiple trailing assistant messages for Claude 4.6", () => {
+    const msgsMulti = [
+      { role: "user" as const, content: "hello" },
+      { role: "assistant" as const, content: "hi" },
+      { role: "assistant" as const, content: "also this" },
+    ]
+    const result = ProviderTransform.message(msgsMulti, claude46, {})
+    expect(result[result.length - 1].role).toBe("user")
+  })
+
+  test("does not strip if last message is user for Claude 4.6", () => {
+    const msgsUser = [
+      { role: "user" as const, content: "hello" },
+      { role: "assistant" as const, content: "hi" },
+      { role: "user" as const, content: "bye" },
+    ]
+    const result = ProviderTransform.message(msgsUser, claude46, {})
+    expect(result[result.length - 1].role).toBe("user")
+    expect(result.length).toBe(3)
+  })
+})
