@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { ProviderTransform } from "../../src/provider/transform"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import type { Provider } from "../../src/provider/provider"
 
 const OUTPUT_TOKEN_MAX = 32000
 
@@ -1165,10 +1166,10 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
   test("filters empty content for bedrock provider", () => {
     const bedrockModel = {
       ...anthropicModel,
-      id: "amazon-bedrock/anthropic.claude-opus-4-6",
+      id: "amazon-bedrock/anthropic.claude-sonnet-4-5",
       providerID: "amazon-bedrock",
       api: {
-        id: "anthropic.claude-opus-4-6",
+        id: "anthropic.claude-sonnet-4-5",
         url: "https://bedrock-runtime.us-east-1.amazonaws.com",
         npm: "@ai-sdk/amazon-bedrock",
       },
@@ -2758,10 +2759,10 @@ describe("ProviderTransform.variants", () => {
 })
 
 describe("ProviderTransform.supportsAssistantPrefill", () => {
-  function createModel(providerID: string, npm: string, apiId: string) {
+  function createModel(providerID: string, npm: string, apiId: string): Provider.Model {
     return {
-      id: `${providerID}/${apiId}`,
-      providerID,
+      id: ModelID.make(`${providerID}/${apiId}`),
+      providerID: ProviderID.make(providerID),
       api: {
         id: apiId,
         url: "https://api.example.com",
@@ -2843,9 +2844,9 @@ describe("ProviderTransform.supportsAssistantPrefill", () => {
 })
 
 describe("ProviderTransform.message - strip trailing assistant for Claude 4.6", () => {
-  const claude46 = {
-    id: "anthropic/claude-opus-4-6",
-    providerID: "anthropic",
+  const claude46: Provider.Model = {
+    id: ModelID.make("anthropic/claude-opus-4-6"),
+    providerID: ProviderID.make("anthropic"),
     api: { id: "claude-opus-4-6", url: "https://api.anthropic.com", npm: "@ai-sdk/anthropic" },
     name: "Claude Opus 4.6",
     capabilities: {
@@ -2865,9 +2866,9 @@ describe("ProviderTransform.message - strip trailing assistant for Claude 4.6", 
     release_date: "2025-01-01",
   }
 
-  const claude35 = {
+  const claude35: Provider.Model = {
     ...claude46,
-    id: "anthropic/claude-3-5-sonnet-20241022",
+    id: ModelID.make("anthropic/claude-3-5-sonnet-20241022"),
     api: { id: "claude-3-5-sonnet-20241022", url: "https://api.anthropic.com", npm: "@ai-sdk/anthropic" },
     name: "Claude 3.5 Sonnet",
   }
