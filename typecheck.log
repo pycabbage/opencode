@@ -1,0 +1,96 @@
+• Packages in scope: @opencode-ai/app, @opencode-ai/console-app, @opencode-ai/console-core, @opencode-ai/console-function, @opencode-ai/console-mail, @opencode-ai/console-resource, @opencode-ai/desktop, @opencode-ai/desktop-electron, @opencode-ai/enterprise, @opencode-ai/function, @opencode-ai/plugin, @opencode-ai/script, @opencode-ai/sdk, @opencode-ai/slack, @opencode-ai/storybook, @opencode-ai/ui, @opencode-ai/util, @opencode-ai/web, opencode
+• Running typecheck in 19 packages
+• Remote caching disabled
+@opencode-ai/ui:typecheck: cache miss, executing 25af5f4bc2eca432
+@opencode-ai/slack:typecheck: cache miss, executing 6e26ce7c4d89c01f
+@opencode-ai/console-function:typecheck: cache miss, executing 4a81ed661261bad1
+@opencode-ai/desktop:typecheck: cache miss, executing 0e604ba5593fdef0
+@opencode-ai/console-app:typecheck: cache miss, executing bf9792db73b4c7a9
+@opencode-ai/sdk:typecheck: cache hit, replaying logs 015a20bc67c998e6
+@opencode-ai/sdk:typecheck: $ tsgo --noEmit
+@opencode-ai/desktop-electron:typecheck: cache miss, executing 252602eeb71e5604
+@opencode-ai/app:typecheck: cache miss, executing a623b7445c7640da
+@opencode-ai/enterprise:typecheck: cache miss, executing a8b019f6e779aec0
+@opencode-ai/plugin:typecheck: cache hit, replaying logs db6a08ab3bd03a8b
+@opencode-ai/plugin:typecheck: $ tsgo --noEmit
+@opencode-ai/util:typecheck: cache miss, executing faed51d30a5eb71e
+@opencode-ai/console-core:typecheck: cache miss, executing 7232aedd91afd26e
+@opencode-ai/ui:typecheck: $ tsgo --noEmit
+@opencode-ai/slack:typecheck: $ tsgo --noEmit
+@opencode-ai/console-function:typecheck: $ tsgo --noEmit
+@opencode-ai/desktop:typecheck: $ tsgo -b
+@opencode-ai/enterprise:typecheck: $ tsgo --noEmit
+@opencode-ai/console-app:typecheck: $ tsgo --noEmit
+@opencode-ai/desktop-electron:typecheck: $ tsgo -b
+@opencode-ai/util:typecheck: $ tsc --noEmit
+@opencode-ai/app:typecheck: $ tsgo -b
+@opencode-ai/console-core:typecheck: $ tsgo --noEmit
+opencode:typecheck: cache miss, executing c327a3e875293139
+opencode:typecheck: $ tsgo --noEmit
+@opencode-ai/desktop:typecheck: ../app/src/app.tsx(12,50): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop:typecheck: ../app/src/components/dialog-custom-provider.tsx(6,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop:typecheck: ../app/src/components/dialog-custom-provider.tsx(140,17): error TS7006: Parameter 'result' implicitly has an 'any' type.
+@opencode-ai/desktop:typecheck: ../app/src/components/dialog-custom-provider.tsx(149,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop:typecheck: ../app/src/components/dialog-edit-project.tsx(5,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop:typecheck: ../app/src/components/dialog-select-mcp.tsx(1,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop:typecheck: ../app/src/components/dialog-select-server.tsx(9,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop:typecheck: ../app/src/components/status-popover.tsx(7,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop:typecheck: ../app/src/components/status-popover.tsx(149,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session.tsx(3,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session.tsx(657,17): error TS7006: Parameter 'x' implicitly has an 'any' type.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session.tsx(661,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session/composer/session-question-dock.tsx(3,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session/message-timeline.tsx(4,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session/message-timeline.tsx(33,27): error TS2307: Cannot find module '@solid-primitives/timer' or its corresponding type declarations.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session/message-timeline.tsx(339,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session/message-timeline.tsx(346,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session/message-timeline.tsx(354,17): error TS7006: Parameter '_' implicitly has an 'any' type.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session/message-timeline.tsx(354,20): error TS7006: Parameter 'input' implicitly has an 'any' type.
+@opencode-ai/desktop:typecheck: ../app/src/pages/session/message-timeline.tsx(363,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop-electron:typecheck: ../app/src/app.tsx(12,50): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop-electron:typecheck: ../app/src/components/dialog-custom-provider.tsx(6,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop-electron:typecheck: ../app/src/components/dialog-custom-provider.tsx(140,17): error TS7006: Parameter 'result' implicitly has an 'any' type.
+@opencode-ai/desktop-electron:typecheck: ../app/src/components/dialog-custom-provider.tsx(149,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop-electron:typecheck: ../app/src/components/dialog-edit-project.tsx(5,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop-electron:typecheck: ../app/src/components/dialog-select-mcp.tsx(1,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop-electron:typecheck: ../app/src/components/dialog-select-server.tsx(9,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop-electron:typecheck: ../app/src/components/status-popover.tsx(7,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop-electron:typecheck: ../app/src/components/status-popover.tsx(149,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session.tsx(3,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session.tsx(657,17): error TS7006: Parameter 'x' implicitly has an 'any' type.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session.tsx(661,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session/composer/session-question-dock.tsx(3,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session/message-timeline.tsx(4,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session/message-timeline.tsx(33,27): error TS2307: Cannot find module '@solid-primitives/timer' or its corresponding type declarations.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session/message-timeline.tsx(339,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session/message-timeline.tsx(346,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session/message-timeline.tsx(354,17): error TS7006: Parameter '_' implicitly has an 'any' type.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session/message-timeline.tsx(354,20): error TS7006: Parameter 'input' implicitly has an 'any' type.
+@opencode-ai/desktop-electron:typecheck: ../app/src/pages/session/message-timeline.tsx(363,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: src/app.tsx(12,50): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/app:typecheck: src/components/dialog-custom-provider.tsx(6,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/app:typecheck: src/components/dialog-custom-provider.tsx(140,17): error TS7006: Parameter 'result' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: src/components/dialog-custom-provider.tsx(149,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: src/components/dialog-edit-project.tsx(5,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/app:typecheck: src/components/dialog-select-mcp.tsx(1,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/app:typecheck: src/components/dialog-select-server.tsx(9,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/app:typecheck: src/components/status-popover.tsx(7,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/app:typecheck: src/components/status-popover.tsx(149,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: src/pages/session.tsx(3,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/app:typecheck: src/pages/session.tsx(657,17): error TS7006: Parameter 'x' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: src/pages/session.tsx(661,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: src/pages/session/composer/session-question-dock.tsx(3,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/app:typecheck: src/pages/session/message-timeline.tsx(4,29): error TS2307: Cannot find module '@tanstack/solid-query' or its corresponding type declarations.
+@opencode-ai/app:typecheck: src/pages/session/message-timeline.tsx(33,27): error TS2307: Cannot find module '@solid-primitives/timer' or its corresponding type declarations.
+@opencode-ai/app:typecheck: src/pages/session/message-timeline.tsx(339,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: src/pages/session/message-timeline.tsx(346,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: src/pages/session/message-timeline.tsx(354,17): error TS7006: Parameter '_' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: src/pages/session/message-timeline.tsx(354,20): error TS7006: Parameter 'input' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: src/pages/session/message-timeline.tsx(363,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+@opencode-ai/app:typecheck: error: script "typecheck" exited with code 1
+
+ Tasks:    3 successful, 13 total
+Cached:    2 cached, 13 total
+  Time:    2.008s 
+Failed:    @opencode-ai/app#typecheck
+
