@@ -189,6 +189,12 @@ export namespace Config {
 
     const mod = path.join(dir, "node_modules", "@opencode-ai", "plugin")
     if (!existsSync(mod)) return true
+    if (
+      await fsNode.stat(mod)
+        .then(() => true)
+        .catch(() => false)
+    )
+      return true
 
     const pkg = path.join(dir, "package.json")
     const pkgExists = await Filesystem.exists(pkg)
