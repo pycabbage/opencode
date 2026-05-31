@@ -1,6 +1,7 @@
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
+import type { InternalTuiPlugin } from "../../plugin/internal"
 import { createMemo, Show } from "solid-js"
-import { Global } from "@/global"
+import { Global } from "@opencode-ai/core/global"
 
 const id = "internal:sidebar-footer"
 
@@ -85,7 +86,9 @@ const tui: TuiPlugin = async (api) => {
   })
 }
 
-export default {
+const plugin: InternalTuiPlugin = {
   id,
   tui,
 }
+
+export default plugin
