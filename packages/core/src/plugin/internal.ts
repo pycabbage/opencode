@@ -28,6 +28,7 @@ import { ConfigReferencePlugin } from "../config/plugin/reference.js"
 import { ConfigShellPlugin } from "../config/plugin/shell.js"
 import { ConfigSnapshotPlugin } from "../config/plugin/snapshot.js"
 import { ConfigSkillPlugin } from "../config/plugin/skill.js"
+import { ConfigSkillR2Plugin } from "../config/plugin/skill-r2.js"
 import { ConfigCompatibilityPlugin } from "../config/plugin/compatibility.js"
 import { ConfigToolOutputPlugin } from "../config/plugin/tool-output.js"
 import { ConfigWebSearchPlugin } from "../config/plugin/websearch.js"
@@ -66,6 +67,7 @@ import { ShellSelect } from "../shell/select.js"
 import { Snapshot } from "../snapshot.js"
 import { Skill } from "../skill.js"
 import { SkillDiscovery } from "../skill/discovery.js"
+import { WorkerdR2 } from "../workerd/r2.js"
 import { Watcher } from "../filesystem/watcher.js"
 import { PatchTool } from "../tool/plugin/patch.js"
 import { EditTool } from "../tool/plugin/edit.js"
@@ -147,6 +149,7 @@ const services = [
   Snapshot.Service,
   Skill.Service,
   SkillDiscovery.Service,
+  WorkerdR2.Service,
   Tool.Service,
   ToolOutput.Service,
   Watcher.Service,
@@ -200,6 +203,7 @@ export const requirements = LayerNode.group([
   Snapshot.node,
   Skill.node,
   SkillDiscovery.node,
+  WorkerdR2.node,
   Tool.node,
   ToolOutput.node,
   Watcher.node,
@@ -261,6 +265,7 @@ const post = [
   ConfigToolOutputPlugin.Plugin,
   ConfigCompatibilityPlugin.Plugin,
   ConfigSkillPlugin.Plugin,
+  ConfigSkillR2Plugin.Plugin,
   ConfigProviderPlugin.Plugin,
   ConfigWebSearchPlugin.Plugin,
   ConfigPolicyPlugin.Plugin,

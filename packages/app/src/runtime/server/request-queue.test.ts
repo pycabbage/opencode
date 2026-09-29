@@ -104,13 +104,19 @@ describe("createRequestQueue", () => {
     expect(isSlowRequest("/api/session")).toBe(false)
   })
 
-  test("never counts the event stream against the budget", async () => {
+  test("HTTP requests to the event route share the request budget", async () => {
     const input = setup({ limit: 1 })
-    void input.queue.fetch("http://server/api/session")
-    void input.queue.fetch("http://server/api/event")
+    const session = input.queue.fetch("http://server/api/session")
+    const event = input.queue.fetch("http://server/api/event")
     await input.settle()
-    expect(input.pending.map((item) => new URL(item.url).pathname).toSorted()).toEqual(["/api/event", "/api/session"])
+    expect(input.pending.map((item) => new URL(item.url).pathname)).toEqual(["/api/session"])
     expect(input.queue.inflight()).toBe(1)
+    expect(input.queue.queued()).toBe(1)
+    input.pending[0]!.resolve()
+    await input.settle()
+    expect(input.pending.map((item) => new URL(item.url).pathname)).toEqual(["/api/session", "/api/event"])
+    input.pending[1]!.resolve()
+    await Promise.all([session, event])
   })
 
   test("aborted requests leave the queue without being sent", async () => {

@@ -1,6 +1,6 @@
 type Entry = { method: string; url: string; at: number; slow: boolean }
 
-// Chromium allows six connections per origin. The event stream holds one for the life of the
+// Chromium allows six connections per origin. The event WebSocket holds one for the life of the
 // connection and health probes use their own fetch, so the app's API calls stay below that or
 // a burst stalls probes and user actions inside the browser where nothing can observe it.
 export const requestQueueLimit = 4
@@ -106,8 +106,6 @@ export function createRequestQueue(input: {
     async (resource: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(resource, init)
       const pathname = new URL(request.url).pathname
-      // The event stream is long-lived; never count it against the request budget.
-      if (pathname === "/api/event") return base(request)
       const entry = { method: request.method, url: request.url, at: now(), slow: isSlowRequest(pathname) }
       const queued = acquire(entry)
       if (queued) await queued

@@ -8,6 +8,7 @@ import { ConfigInstructionPlugin } from "@opencode/core/config/plugin/instructio
 import { Watcher } from "@opencode/core/filesystem/watcher"
 import { InstructionDiscovery } from "@opencode/core/instruction-discovery"
 import { Location } from "@opencode/core/location"
+import { WorkerdR2 } from "@opencode/core/workerd/r2"
 import { AbsolutePath } from "@opencode/core/schema"
 import { FSUtil } from "@opencode/util/fs-util"
 import { Global } from "@opencode/util/global"
@@ -31,7 +32,7 @@ const instructionLayer = (input: {
   const watcher = Watcher.testLayer
   return Layer.mergeAll(
     AppNodeBuilder.build(
-      LayerNode.group([InstructionDiscovery.node, Bus.node, FSUtil.node, Global.node, Location.node, Watcher.node]),
+      LayerNode.group([InstructionDiscovery.node, Bus.node, FSUtil.node, Global.node, Location.node, WorkerdR2.node, Watcher.node]),
       [
         InstructionDiscovery.node.replace(InstructionDiscovery.configured({ project: input.project })),
         Global.node.replace(

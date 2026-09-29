@@ -4,23 +4,15 @@ import { OpenCode } from "@opencode/client/promise"
 import { streamTurn } from "../../src/acp/event"
 
 test("acp prompt resolves after ordered turn updates", async () => {
-  const encoder = new TextEncoder()
-  let events: ReadableStreamDefaultController<Uint8Array> | undefined
+  let events: Bun.ServerWebSocket<unknown> | undefined
   const updates: Parameters<AgentSideConnection["sessionUpdate"]>[0][] = []
   const server = Bun.serve({
     port: 0,
-    async fetch(request) {
+    async fetch(request, server) {
       const url = new URL(request.url)
       if (url.pathname === "/api/event") {
-        return new Response(
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              events = controller
-              send(controller, { id: "evt_connected", type: "server.connected", data: {} })
-            },
-          }),
-          { headers: { "content-type": "text/event-stream" } },
-        )
+        if (server.upgrade(request)) return
+        return new Response(null, { status: 426 })
       }
       if (url.pathname === "/api/session/ses_test/prompt") {
         const body: unknown = await request.json()
@@ -80,6 +72,16 @@ test("acp prompt resolves after ordered turn updates", async () => {
       }
       return new Response(null, { status: 404 })
     },
+    websocket: {
+      open(socket) {
+        events = socket
+        send(socket, { id: "evt_connected", type: "server.connected", data: {} })
+      },
+      message() {},
+      close(socket) {
+        if (events === socket) events = undefined
+      },
+    },
   })
   const client = OpenCode.make({ baseUrl: server.url.toString() })
 
@@ -117,25 +119,25 @@ test("acp prompt resolves after ordered turn updates", async () => {
     await server.stop(true)
   }
 
-  function send(controller: ReadableStreamDefaultController<Uint8Array>, event: unknown) {
-    controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+  function send(socket: Bun.ServerWebSocket<unknown>, event: unknown) {
+    socket.send(JSON.stringify(event))
   }
 })
 
 test("acp action resolves without prompt lifecycle events", async () => {
-  const encoder = new TextEncoder()
   const server = Bun.serve({
     port: 0,
-    fetch(request) {
+    fetch(request, server) {
       if (new URL(request.url).pathname !== "/api/event") return new Response(null, { status: 404 })
-      return new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "server.connected", data: {} })}\n\n`))
-          },
-        }),
-        { headers: { "content-type": "text/event-stream" } },
-      )
+      if (server.upgrade(request)) return
+      return new Response(null, { status: 426 })
+    },
+    websocket: {
+      open(socket) {
+        socket.send(JSON.stringify({ type: "server.connected", data: {} }))
+      },
+      message() {},
+      close() {},
     },
   })
 

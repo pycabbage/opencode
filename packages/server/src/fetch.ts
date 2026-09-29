@@ -7,6 +7,7 @@ import type { LayerNode } from "@opencode/util/effect/layer-node"
 import { isAllowedCorsOrigin } from "./cors"
 import { createRoutes } from "./routes"
 import type { ServerOptions } from "./options"
+import type { OnEvent } from "./event-feed"
 
 export interface BootOptions {
   /**
@@ -14,6 +15,8 @@ export interface BootOptions {
    * win — swaps services the standard graph assumes are local. See `ServerWorkerd.replacements`.
    */
   readonly overrides?: LayerNode.Replacements
+  /** Direct event sink used by runtimes that cannot keep a background stream consumer alive. */
+  readonly onEvent?: OnEvent
 }
 
 /**
@@ -40,7 +43,7 @@ export interface BootOptions {
  */
 export const make = Effect.fn("ServerFetch.make")(function* (options: ServerOptions = {}, boot: BootOptions = {}) {
   const context = yield* Layer.build(
-    createRoutes(options, () => [], boot.overrides ?? []).pipe(Layer.provide(HttpServer.layerServices)),
+    createRoutes(options, () => [], boot.overrides ?? [], boot.onEvent).pipe(Layer.provide(HttpServer.layerServices)),
   )
   // Forked so the returned handler is never delayed; resumed drains are already
   // logged and durably recorded by the execution layer.

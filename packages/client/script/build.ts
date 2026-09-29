@@ -38,8 +38,12 @@ import { WebSearch } from "@opencode/schema/websearch"
 import { Effect, Schema } from "effect"
 import { fileURLToPath } from "url"
 
-const promiseContract = compile(ClientApi, { groupNames, omitEndpoints: promiseOmitEndpoints })
-const effectContract = compile(ClientApi, { groupNames, omitEndpoints: effectOmitEndpoints })
+const websocketEndpoints = new Set(["event.subscribe"])
+const promiseContract = compile(ClientApi, { groupNames, omitEndpoints: promiseOmitEndpoints, websocketEndpoints })
+const effectContract = compile(ClientApi, { groupNames, omitEndpoints: effectOmitEndpoints, websocketEndpoints })
+const promiseOutput = emitPromise(promiseContract, {
+  mutableOutputs: true,
+})
 const effectTypeReferences = [
   ...namespaceTypes("Agent", "@opencode/schema/agent", Agent),
   ...namespaceTypes("Command", "@opencode/schema/command", Command),
@@ -86,12 +90,7 @@ const effectTypeReferences = [
 await Effect.runPromise(
   Effect.all(
     [
-      write(
-        emitPromise(promiseContract, {
-          mutableOutputs: true,
-        }),
-        fileURLToPath(new URL("../src/promise/generated", import.meta.url)),
-      ),
+      write(promiseOutput, fileURLToPath(new URL("../src/promise/generated", import.meta.url))),
       write(
         emitEffectImported(effectContract, {
           module: "../../contract",

@@ -1,5 +1,5 @@
 import type { OpenCodeClient, OpenCodeEvent } from "@opencode/client"
-import { createClientConnection, createPersistentPtyClient } from "@opencode/client/solid"
+import { createClientConnection, createPersistentPtyClient, idleWatchdogThreshold } from "@opencode/client/solid"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { onCleanup } from "solid-js"
 import { createSimpleContext } from "./helper"
@@ -35,6 +35,10 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
       onEvent(event) {
         events.emit(event.type, event)
       },
+      // The TUI runs under Bun (no window/document), so pageLifecycle's visibilitychange-based
+      // resync is unavailable; this timer-based watchdog is the fallback for detecting a half-open
+      // connection here.
+      idleWatchdog: idleWatchdogThreshold,
       log,
     })
 

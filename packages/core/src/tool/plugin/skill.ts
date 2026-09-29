@@ -5,6 +5,7 @@ import { ToolFailure } from "@opencode/ai"
 import { Effect, Schema } from "effect"
 import { FSUtil } from "@opencode/util/fs-util"
 import { Skill } from "../../skill.js"
+import { WorkerdR2 } from "../../workerd/r2.js"
 import { Permission } from "../../permission.js"
 
 export const name = "skill"
@@ -34,6 +35,7 @@ export const Plugin = {
   effect: Effect.fn("SkillTool.Plugin")(function* (ctx: Context) {
     const fs = yield* FSUtil.Service
     const skills = yield* Skill.Service
+    const r2 = yield* WorkerdR2.Service
     const permission = yield* Permission.Service
     yield* ctx.tool
       .transform((editor) =>
@@ -56,7 +58,7 @@ export const Plugin = {
                   agent: context.agent,
                   source: { type: "tool", messageID: context.messageID, id: context.id },
                 })
-                return { name: skill.name, ...(yield* Skill.prepare(fs, skill)) }
+                return { name: skill.name, ...(yield* Skill.prepare(fs, skill, r2)) }
               }).pipe(Effect.mapError((error) => unableToLoad(input.id, error)))
             }).pipe(
               Effect.map((output) => ({

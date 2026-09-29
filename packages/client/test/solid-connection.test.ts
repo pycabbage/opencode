@@ -1,56 +1,36 @@
-import { expect, test } from "bun:test"
+import { afterEach, beforeEach, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
 import { createClientConnection } from "../src/solid"
 import { OpenCode, type OpenCodeEvent } from "../src/promise"
+import { FakeWebSocket, installFakeWebSocket } from "./fake-websocket"
+
+let restore: () => void
+beforeEach(() => {
+  restore = installFakeWebSocket()
+})
+afterEach(() => restore())
 
 const connected = { id: "evt_connected", created: 1, type: "server.connected", data: {} }
 
-// One fake server whose event streams stay open until the test writes to them or the client aborts.
 function server() {
-  const encoder = new TextEncoder()
-  const streams: {
-    write: (text: string) => void
-    close: () => void
-    aborted: boolean
-  }[] = []
   const api = OpenCode.make({
     baseUrl: "http://opencode.local",
-    fetch: async (input, init) => {
-      const request = input instanceof Request ? input : new Request(input, init)
-      let controller!: ReadableStreamDefaultController<Uint8Array>
-      const entry = {
-        write: (text: string) => controller.enqueue(encoder.encode(text)),
-        close: () => controller.close(),
-        aborted: false,
-      }
-      const body = new ReadableStream<Uint8Array>({
-        start(value) {
-          controller = value
-        },
-        cancel() {
-          entry.aborted = true
-        },
-      })
-      request.signal.addEventListener("abort", () => {
-        entry.aborted = true
-        controller.error(request.signal.reason)
-      })
-      streams.push(entry)
-      return new Response(body, { headers: { "content-type": "text/event-stream" } })
-    },
   })
-  return { api, streams }
+  return { api, sockets: FakeWebSocket.instances }
 }
 
-function setup(input: ReturnType<typeof server>, idleTimeout: number) {
+function setup(
+  input: ReturnType<typeof server>,
+  extra: Partial<Parameters<typeof createClientConnection>[1]> = {},
+) {
   const events: OpenCodeEvent[] = []
   return createRoot((dispose) => ({
     events,
     dispose,
     connection: createClientConnection(input.api, {
-      idleTimeout,
       flushInterval: 0,
       onEvent: (event) => events.push(event),
+      ...extra,
     }),
   }))
 }
@@ -63,44 +43,20 @@ async function until(check: () => boolean, timeout = 2_000) {
   }
 }
 
-test("a stream that goes silent past the idle timeout is replaced", async () => {
+test("a WebSocket that stays quiet has no application-level keepalive and is not replaced", async () => {
   const fake = server()
-  const ctx = setup(fake, 60)
+  const ctx = setup(fake)
   try {
-    await until(() => fake.streams.length === 1)
-    fake.streams[0].write(`data: ${JSON.stringify(connected)}\n\n`)
+    await until(() => fake.sockets.length === 1)
+    fake.sockets[0].open()
+    fake.sockets[0].message(JSON.stringify(connected))
     await until(() => ctx.connection.status() === "connected")
 
-    await until(() => fake.streams.length === 2)
-    expect(fake.streams[0].aborted).toBe(true)
-    expect(ctx.connection.internal.history().map((item) => item.data)).toContainEqual({
-      status: "disconnected",
-      attempt: 1,
-      error: "Event stream stalled",
-    })
-
-    fake.streams[1].write(`data: ${JSON.stringify({ ...connected, id: "evt_connected_2" })}\n\n`)
-    await until(() => ctx.connection.status() === "connected" && ctx.events.length === 2)
-    expect(ctx.connection.error()).toBeUndefined()
-  } finally {
-    ctx.dispose()
-  }
-})
-
-test("keepalive comments hold a quiet stream open", async () => {
-  const fake = server()
-  const ctx = setup(fake, 60)
-  try {
-    await until(() => fake.streams.length === 1)
-    fake.streams[0].write(`data: ${JSON.stringify(connected)}\n\n`)
-    await until(() => ctx.connection.status() === "connected")
-
-    const heartbeat = setInterval(() => fake.streams[0].write(": heartbeat\n\n"), 20)
     await new Promise((resolve) => setTimeout(resolve, 250))
-    clearInterval(heartbeat)
 
-    expect(fake.streams).toHaveLength(1)
-    expect(fake.streams[0].aborted).toBe(false)
+    expect(fake.sockets).toHaveLength(1)
+    expect(fake.sockets[0].sent).toEqual([])
+    expect(fake.sockets[0].readyState).toBe(FakeWebSocket.OPEN)
     expect(ctx.connection.status()).toBe("connected")
     expect(ctx.events).toHaveLength(1)
   } finally {
@@ -108,45 +64,88 @@ test("keepalive comments hold a quiet stream open", async () => {
   }
 })
 
-test("a forced resync replaces the stream immediately and only while connected", async () => {
+test("a forced resync replaces the WebSocket immediately and only while connected", async () => {
   const fake = server()
-  const ctx = setup(fake, 10_000)
+  const ctx = setup(fake)
   try {
     ctx.connection.internal.resync("too early")
-    await until(() => fake.streams.length === 1)
-    expect(fake.streams[0].aborted).toBe(false)
-    fake.streams[0].write(`data: ${JSON.stringify(connected)}\n\n`)
+    await until(() => fake.sockets.length === 1)
+    expect(fake.sockets[0].readyState).toBe(FakeWebSocket.CONNECTING)
+    fake.sockets[0].open()
+    fake.sockets[0].message(JSON.stringify(connected))
     await until(() => ctx.connection.status() === "connected")
 
     const started = Date.now()
     ctx.connection.internal.resync("Network connection restored")
-    await until(() => fake.streams.length === 2)
+    await until(() => fake.sockets.length === 2)
     expect(Date.now() - started).toBeLessThan(500)
-    expect(fake.streams[0].aborted).toBe(true)
+    expect(fake.sockets[0].readyState).toBe(FakeWebSocket.CLOSED)
     expect(ctx.connection.internal.history().map((item) => item.data)).toContainEqual({
       status: "disconnected",
       attempt: 1,
       error: "Network connection restored",
     })
-    fake.streams[1].write(`data: ${JSON.stringify(connected)}\n\n`)
+    fake.sockets[1].open()
+    fake.sockets[1].message(JSON.stringify(connected))
     await until(() => ctx.connection.status() === "connected")
   } finally {
     ctx.dispose()
   }
 })
 
-test("a stream the server closes reconnects and reports the disconnect", async () => {
+test("an idle watchdog resyncs the connection once its threshold is exceeded", async () => {
   const fake = server()
-  const ctx = setup(fake, 10_000)
+  const ctx = setup(fake, { idleWatchdog: 80 })
   try {
-    await until(() => fake.streams.length === 1)
-    fake.streams[0].write(`data: ${JSON.stringify(connected)}\n\n`)
+    await until(() => fake.sockets.length === 1)
+    fake.sockets[0].open()
+    fake.sockets[0].message(JSON.stringify(connected))
     await until(() => ctx.connection.status() === "connected")
 
-    fake.streams[0].close()
+    await until(() => fake.sockets.length === 2)
+    expect(fake.sockets[0].readyState).toBe(FakeWebSocket.CLOSED)
+    expect(ctx.connection.internal.history().map((item) => item.data)).toContainEqual({
+      status: "disconnected",
+      attempt: 1,
+      error: "Event WebSocket idle watchdog threshold exceeded",
+    })
+  } finally {
+    ctx.dispose()
+  }
+})
+
+test("an idle watchdog does not resync before its threshold elapses", async () => {
+  const fake = server()
+  const ctx = setup(fake, { idleWatchdog: 5_000 })
+  try {
+    await until(() => fake.sockets.length === 1)
+    fake.sockets[0].open()
+    fake.sockets[0].message(JSON.stringify(connected))
+    await until(() => ctx.connection.status() === "connected")
+
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    expect(fake.sockets).toHaveLength(1)
+    expect(fake.sockets[0].readyState).toBe(FakeWebSocket.OPEN)
+    expect(ctx.connection.status()).toBe("connected")
+  } finally {
+    ctx.dispose()
+  }
+})
+
+test("a server-closed WebSocket reconnects and reports the disconnect", async () => {
+  const fake = server()
+  const ctx = setup(fake)
+  try {
+    await until(() => fake.sockets.length === 1)
+    fake.sockets[0].open()
+    fake.sockets[0].message(JSON.stringify(connected))
+    await until(() => ctx.connection.status() === "connected")
+
+    fake.sockets[0].close()
     await until(() => ctx.connection.status() === "reconnecting")
-    expect(ctx.connection.error()).toBe("Event stream disconnected")
-    await until(() => fake.streams.length === 2)
+    expect(ctx.connection.error()).toBe("Event WebSocket disconnected")
+    await until(() => fake.sockets.length === 2)
   } finally {
     ctx.dispose()
   }

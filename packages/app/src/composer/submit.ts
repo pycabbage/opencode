@@ -363,15 +363,18 @@ async function applySelection(
     if (current?.agent !== selection.agent) {
       await session.api.switchAgent({ sessionID: session.id, agent: selection.agent })
     }
-    // The server deduplicates unchanged selections; cached SSE state may still be behind an earlier switch.
-    await session.api.switchModel({
-      sessionID: session.id,
-      model: { id: selection.model.modelID, providerID: selection.model.providerID, variant: selection.variant },
-    })
+    await switchModelUnconditionally(session, selection)
   } catch (error) {
     cancel?.()
     throw error
   }
+}
+
+async function switchModelUnconditionally(session: ComposerSession, selection: ComposerSelection) {
+  await session.api.switchModel({
+    sessionID: session.id,
+    model: { id: selection.model.modelID, providerID: selection.model.providerID, variant: selection.variant },
+  })
 }
 
 async function sendPrompt(

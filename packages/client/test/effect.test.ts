@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { Context, DateTime, Effect, Stream } from "effect"
+import { DateTime, Effect, Stream } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import {
   AbsolutePath,
@@ -12,8 +12,18 @@ import {
   Session,
   SessionMessage,
 } from "../src/effect/index"
+import { FakeWebSocket, withFakeWebSocket } from "./fake-websocket"
 
 const synced = { type: "log.synced" as const, aggregateID: "ses_test", seq: Event.Seq.make(1) }
+
+async function untilSocket(timeout = 2_000) {
+  const deadline = Date.now() + timeout
+  while (!FakeWebSocket.instances[0]) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting for an event WebSocket")
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  return FakeWebSocket.instances[0]
+}
 
 test("server.info decodes the readiness response", async () => {
   const httpClient = HttpClient.make((request) =>
@@ -125,70 +135,60 @@ test("session instructions methods use the public HTTP contract", async () => {
   ])
 })
 
-test("event.subscribe exposes and decodes the native Effect event stream", async () => {
-  const httpClient = HttpClient.make((request) =>
-    Effect.succeed(
-      HttpClientResponse.fromWeb(
-        request,
-        new Response(
-          `data: ${JSON.stringify({ id: "evt_connected", created: 0, type: "server.connected", data: {} })}\n\n` +
-            `data: ${JSON.stringify(modelSwitchedEvent)}\n\n`,
-          { headers: { "content-type": "text/event-stream" } },
-        ),
-      ),
-    ),
-  )
-  const events = await Effect.gen(function* () {
-    const client = yield* OpenCode.make({ baseUrl: "http://localhost:3000" })
-    return yield* client.event.subscribe().pipe(Stream.runCollect)
-  }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
+test("event.subscribe consumes WebSocket frames as a typed Effect stream", async () => {
+  await withFakeWebSocket(async () => {
+    const httpClient = HttpClient.make(() => Effect.die(new Error("event subscription must use WebSocket")))
+    const events = Effect.gen(function* () {
+      const client = yield* OpenCode.make({ baseUrl: "http://localhost:3000" })
+      return yield* client.event.subscribe().pipe(Stream.take(2), Stream.runCollect)
+    }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
 
-  expect(Array.from(events).map((event) => event.type)).toEqual(["server.connected", "session.model.selected"])
-  const durable = events[1]
-  if (durable?.type !== "session.model.selected") throw new Error("Expected model event")
-  expect(durable.created).toBe(1_717_171_717_000)
-  expect(durable.durable).toEqual({ aggregateID: "ses_test", seq: 1, version: 1 })
+    const socket = await untilSocket()
+    socket.open()
+    socket.message(JSON.stringify({ id: "evt_connected", type: "server.connected", data: {} }))
+    socket.message(JSON.stringify(modelSwitchedEvent))
+
+    const received = Array.from(await events)
+    expect(received.map((event) => event.type)).toEqual(["server.connected", "session.model.selected"])
+    const durable = received[1]
+    if (durable?.type !== "session.model.selected") throw new Error("Expected model event")
+    expect(durable.created).toBe(1_717_171_717_000)
+    expect(durable.durable).toEqual({ aggregateID: "ses_test", seq: 1, version: 1 })
+  })
 })
 
-test("shared event source runs with the Effect context captured by make", async () => {
-  const connected = { id: "evt_connected", type: "server.connected", data: {} }
-  const Token = Context.Reference("test/effect/token", { defaultValue: () => "missing" })
-  const httpClient = HttpClient.make((request) =>
-    Effect.gen(function* () {
-      const token = yield* Token
-      expect(token).toBe("captured")
-      return HttpClientResponse.fromWeb(
-        request,
-        new Response(`data: ${JSON.stringify(connected)}\n\n`, { headers: { "content-type": "text/event-stream" } }),
-      )
-    }),
-  )
-  const client = await Effect.runPromise(
-    OpenCode.make({ baseUrl: "http://localhost:3000" }).pipe(
-      Effect.provideService(HttpClient.HttpClient, httpClient),
-      Effect.provideService(Token, "captured"),
-    ),
-  )
-  expect((await Effect.runPromise(Stream.runCollect(client.event.subscribe())))[0]).toEqual(connected)
+test("event.subscribe carries authToken as the auth_token query parameter", async () => {
+  await withFakeWebSocket(async () => {
+    const httpClient = HttpClient.make(() => Effect.die(new Error("event subscription must use WebSocket")))
+    const events = Effect.gen(function* () {
+      const client = yield* OpenCode.make({ baseUrl: "http://localhost:3000", authToken: "b3BlbmNvZGU6c2VjcmV0" })
+      return yield* client.event.subscribe().pipe(Stream.take(1), Stream.runCollect)
+    }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
+
+    const socket = await untilSocket()
+    expect(new URL(socket.url).searchParams.get("auth_token")).toBe("b3BlbmNvZGU6c2VjcmV0")
+    socket.open()
+    socket.message(JSON.stringify({ id: "evt_connected", type: "server.connected", data: {} }))
+
+    const received = Array.from(await events)
+    expect(received.map((event) => event.type)).toEqual(["server.connected"])
+  })
 })
 
-test("event.subscribe terminates on Effect protocol decode failures", async () => {
-  const httpClient = HttpClient.make((request) =>
-    Effect.succeed(
-      HttpClientResponse.fromWeb(
-        request,
-        new Response(`data: {"type":"server.connected"}\n\n`, {
-          headers: { "content-type": "text/event-stream" },
-        }),
-      ),
-    ),
-  )
-  const error = await Effect.gen(function* () {
-    const client = yield* OpenCode.make({ baseUrl: "http://localhost:3000" })
-    return yield* client.event.subscribe().pipe(Stream.runCollect, Effect.flip)
-  }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
+test("event.subscribe omits auth_token when no authToken is configured", async () => {
+  await withFakeWebSocket(async () => {
+    const httpClient = HttpClient.make(() => Effect.die(new Error("event subscription must use WebSocket")))
+    const events = Effect.gen(function* () {
+      const client = yield* OpenCode.make({ baseUrl: "http://localhost:3000" })
+      return yield* client.event.subscribe().pipe(Stream.take(1), Stream.runCollect)
+    }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
 
-  expect(error._tag).toBe("ClientError")
+    const socket = await untilSocket()
+    expect(new URL(socket.url).searchParams.has("auth_token")).toBe(false)
+    socket.open()
+    socket.message(JSON.stringify({ id: "evt_connected", type: "server.connected", data: {} }))
+    await events
+  })
 })
 
 test("session methods retain decoded Effect inputs and outputs", async () => {
@@ -249,7 +249,10 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
     const created = yield* client.session.create({
       location: Location.Ref.make({ directory: AbsolutePath.make("/tmp/project") }),
     })
-    yield* client.session.view({ sessionID: Session.ID.make("ses_test"), idle: session.data.time.idle })
+    yield* client.session.view({
+      sessionID: Session.ID.make("ses_test"),
+      idle: DateTime.makeUnsafe(session.data.time.idle),
+    })
     yield* client.session.switchAgent({ sessionID: Session.ID.make("ses_test"), agent: Agent.ID.make("build") })
     yield* client.session.switchModel({
       sessionID: Session.ID.make("ses_test"),

@@ -10,6 +10,7 @@ import type { Files } from "../environment/index.js"
 import { FileSystem } from "../filesystem.js"
 import { Mime } from "../mime.js"
 import { AbsolutePath, NonNegativeInt, PositiveInt, RelativePath } from "../schema.js"
+import { WorkerdR2 } from "../workerd/r2.js"
 
 export const MAX_READ_LINES = 2_000
 export const MAX_READ_BYTES = 50 * 1024
@@ -112,6 +113,108 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/ReadToolFileSystem") {}
 
 const mimeType = (value: string) => lookup(value) || "application/octet-stream"
+
+// skills:// paths address R2 objects through WorkerdR2 instead of the location
+// filesystem, so reads keep working on runtimes with no execution plane.
+const skillsScheme = "skills://"
+
+const failed = (input: AbsolutePath) => (cause: WorkerdR2.Failure) => new Environment.Failed({ path: input, cause })
+
+const readR2 = Effect.fn("ReadTool.readSkills")(function* (
+  r2: WorkerdR2.Interface,
+  input: AbsolutePath,
+  resource: string,
+  page: PageInput = {},
+) {
+  const rest = input.slice(skillsScheme.length).replace(/^\/+/, "").replace(/\/+$/, "")
+  if (rest === "") return yield* listR2(r2, input, "", page)
+
+  const segments = rest.split("/")
+  const name = segments[0]
+  const relative = segments.slice(1).join("/")
+  if (relative === "") return yield* listR2(r2, input, `skills/${name}/`, page)
+
+  const key = `skills/${name}/${relative}`
+  const content = yield* r2.read(key).pipe(Effect.mapError(failed(input)))
+  if (content === undefined) return yield* listR2(r2, input, `${key}/`, page)
+  return yield* readR2Bytes(input, resource, key, content.bytes, content.size, page)
+})
+
+const readR2Bytes = Effect.fn("ReadTool.readSkillsBytes")(function* (
+  input: AbsolutePath,
+  resource: string,
+  key: string,
+  bytes: Uint8Array,
+  size: number,
+  page: PageInput,
+) {
+  const media = Mime.detect(bytes)
+  if (MEDIA_MIMES.has(media)) {
+    if (size > MAX_MEDIA_INGEST_BYTES)
+      return yield* new MediaIngestLimitError({ resource, maximumBytes: MAX_MEDIA_INGEST_BYTES })
+    return {
+      type: "file" as const,
+      uri: input,
+      name: path.basename(input),
+      content: Buffer.from(bytes).toString("base64"),
+      encoding: "base64" as const,
+      mime: media,
+    }
+  }
+
+  const paged = size > MAX_READ_BYTES || page.offset !== undefined || page.limit !== undefined
+  if (!paged) {
+    if (bytes.includes(0)) return yield* new BinaryFileError({ resource })
+    return {
+      type: "file" as const,
+      uri: input,
+      name: path.basename(input),
+      content: new TextDecoder().decode(bytes).split("\n").map(clampLine).join("\n"),
+      encoding: "utf8" as const,
+      mime: mimeType(key),
+    }
+  }
+
+  const result = textPage(bytes, true, page)
+  if (result === undefined) return yield* new BinaryFileError({ resource })
+  return yield* makeTextPage(
+    input,
+    resource,
+    result,
+    bytes.subarray(0, result.consumed).includes(0),
+    lineCount(textLeaf(bytes).summary.lines, bytes.at(-1)),
+  )
+})
+
+const r2Entries = (keys: ReadonlyArray<string>) => {
+  const names = new Map<string, "file" | "directory">()
+  for (const key of keys) {
+    const first = key.split("/")[0]
+    if (first === "") continue
+    names.set(first, key.includes("/") ? "directory" : "file")
+  }
+  return Array.from(names, ([name, type]): Environment.DirEntry => ({ name, type })).sort((a, b) =>
+    a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1,
+  )
+}
+
+const listSkillsEntries = (r2: WorkerdR2.Interface) =>
+  r2.listSkills().pipe(
+    Effect.map((names): ReadonlyArray<Environment.DirEntry> => names.map((name) => ({ name, type: "directory" }))),
+  )
+
+const listObjectEntries = (r2: WorkerdR2.Interface, prefix: string) => r2.listObjects(prefix).pipe(Effect.map(r2Entries))
+
+const entriesOrNotFound = (r2: WorkerdR2.Interface, input: AbsolutePath, prefix: string) =>
+  (prefix === "" ? listSkillsEntries(r2) : listObjectEntries(r2, prefix)).pipe(
+    Effect.mapError(failed(input)),
+    Effect.flatMap((items) =>
+      items.length === 0 ? Effect.fail(new Environment.NotFound({ path: input })) : Effect.succeed(items),
+    ),
+  )
+
+const listR2 = (r2: WorkerdR2.Interface, input: AbsolutePath, prefix: string, page: PageInput) =>
+  entriesOrNotFound(r2, input, prefix).pipe(Effect.map((items) => list(items, page)))
 
 export const read = Effect.fn("ReadTool.read")(function* (
   files: Files,
@@ -388,15 +491,23 @@ const nthNewline = (bytes: Uint8Array, count: number) => {
   }
 }
 
+const entriesR2 = (r2: WorkerdR2.Interface, input: AbsolutePath) => {
+  const rest = input.slice(skillsScheme.length).replace(/^\/+/, "").replace(/\/+$/, "")
+  return entriesOrNotFound(r2, input, rest === "" ? "" : `skills/${rest}/`)
+}
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const environment = yield* Environment.Service
+    const r2 = yield* WorkerdR2.Service
+    const isSkillsPath = (path: AbsolutePath) => path.startsWith(skillsScheme)
     return Service.of({
-      list: environment.files.list,
-      read: (path, resource, page) => read(environment.files, path, resource, page),
+      list: (input) => (isSkillsPath(input) ? entriesR2(r2, input) : environment.files.list(input)),
+      read: (input, resource, page) =>
+        isSkillsPath(input) ? readR2(r2, input, resource, page) : read(environment.files, input, resource, page),
     })
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [Environment.node] })
+export const node = makeLocationNode({ service: Service, layer, deps: [Environment.node, WorkerdR2.node] })

@@ -18,11 +18,7 @@ export type ClientConnectionOptions = {
   readonly onEvent: (event: OpenCodeEvent) => void
   readonly flushInterval?: number
   readonly pageLifecycle?: boolean
-  /**
-   * Abort and reconnect a stream that receives no bytes for this long. The server writes a keepalive
-   * comment every 15 seconds, so a quiet but healthy stream never trips this.
-   */
-  readonly idleTimeout?: number
+  readonly idleWatchdog?: number
   readonly log?: {
     readonly debug?: (message: string, data?: Readonly<Record<string, unknown>>) => void
     readonly info?: (message: string, data?: Readonly<Record<string, unknown>>) => void
@@ -32,15 +28,20 @@ export type ClientConnectionOptions = {
 const connectTimeout = 2_000
 const reconnectDelay = 1_000
 const connectionHistoryLimit = 50
-export const defaultIdleTimeout = 45_000
-// Longer than one server keepalive interval: a stream that is silent this long when the page
-// returns to the foreground is probably half-open after the device slept.
-export const foregroundIdleThreshold = 20_000
+// There is no application-level keepalive, so a long silence is expected whenever no event fires
+// (an idle session naturally goes quiet indefinitely). This threshold only guards the case pageshow
+// cannot see on its own: pagehide/pageshow bracket most backgrounding, but a mobile OS can pause a
+// page without ever firing pagehide, so visibilitychange is the fallback that notices the return.
+// Set high enough that a normal multi-tab glance (tens of seconds without an event, socket still
+// alive) never trips a needless reconnect, while a real suspend-and-resume (the socket is almost
+// certainly dead after the device slept) still gets caught promptly once the page is visible again.
+export const foregroundIdleThreshold = 60_000
+
+export const idleWatchdogThreshold = 150_000
 
 export function createClientConnection(initialApi: OpenCodeClient, options: ClientConnectionOptions) {
   const abort = new AbortController()
   const history: ClientConnectionEvent[] = []
-  const idleTimeout = options.idleTimeout ?? defaultIdleTimeout
   const [connection, setConnection] = createStore<{
     status: ClientConnectionStatus
     attempt: number
@@ -81,36 +82,30 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     const timeout = setTimeout(() => request.abort(new Error("Timed out connecting to server")), connectTimeout)
     signal.addEventListener("abort", cancel, { once: true })
 
-    // Any received bytes, including keepalive comments, push the stall deadline out. A timer whose
-    // deadline passed while the page was suspended fires as soon as the page resumes.
-    let watchdog: ReturnType<typeof setTimeout> | undefined
     const touch = () => {
       lastActivity = Date.now()
-      if (connectedAt === undefined) return
-      clearTimeout(watchdog)
-      watchdog = setTimeout(() => request.abort(new Error("Event stream stalled")), idleTimeout)
     }
 
     try {
       record(attempt === 0 ? "connecting" : "reconnecting", attempt)
-      options.log?.info?.("event stream connecting", { attempt })
+      options.log?.info?.("event WebSocket connecting", { attempt })
       const iterator = api.event.subscribe({ signal: request.signal, onActivity: touch })[Symbol.asyncIterator]()
       const first = await iterator.next()
       if (signal.aborted) return { error: undefined, connectedAt }
       if (first.done)
         return {
           error:
-            request.signal.reason instanceof Error ? request.signal.reason : new Error("Event stream disconnected"),
+            request.signal.reason instanceof Error ? request.signal.reason : new Error("Event WebSocket disconnected"),
           connectedAt,
         }
       if (first.value.type !== "server.connected")
-        return { error: new Error("Event stream did not start with server.connected"), connectedAt }
+        return { error: new Error("Event WebSocket did not start with server.connected"), connectedAt }
 
       clearTimeout(timeout)
       record("connected", attempt)
       connectedAt = Date.now()
       touch()
-      options.log?.info?.("event stream connected")
+      options.log?.info?.("event WebSocket connected")
       publish(first.value)
       setConnection({ status: "connected", attempt: 0, error: undefined })
 
@@ -120,7 +115,7 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
         if (event.done)
           return {
             error:
-              request.signal.reason instanceof Error ? request.signal.reason : new Error("Event stream disconnected"),
+              request.signal.reason instanceof Error ? request.signal.reason : new Error("Event WebSocket disconnected"),
             connectedAt,
           }
         touch()
@@ -139,7 +134,6 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
       request.abort()
       if (current === request) current = undefined
       clearTimeout(timeout)
-      clearTimeout(watchdog)
       signal.removeEventListener("abort", cancel)
     }
   }
@@ -159,7 +153,7 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
       attempt += 1
       const message = errorMessage(result.error)
       record("disconnected", attempt, message)
-      options.log?.info?.("event stream disconnected", { attempt, error: message })
+      options.log?.info?.("event WebSocket disconnected", { attempt, error: message })
       setConnection({ status: "reconnecting", attempt, error: message })
 
       if (options.reconnect) {
@@ -208,10 +202,11 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     setConnection({ status: "connecting", attempt: 0, error: undefined })
   }
 
-  // Drop the live request so the reconnect loop replaces it now instead of waiting for the idle watchdog.
+  // Force a fresh connection now instead of waiting on the socket's own close/error event, which may
+  // never fire for a connection that went silently half-open (e.g. the device slept through it).
   function resync(reason: string) {
     if (!started || connection.status !== "connected") return
-    options.log?.info?.("event stream resync", { reason, idle: Date.now() - lastActivity })
+    options.log?.info?.("event WebSocket resync", { reason, idle: Date.now() - lastActivity })
     forced = true
     current?.abort(new Error(reason))
   }
@@ -224,7 +219,7 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
     const visibility = () => {
       if (document.visibilityState !== "visible") return
       if (Date.now() - lastActivity < foregroundIdleThreshold) return
-      resync("Page returned to the foreground after the event stream went quiet")
+      resync("Page returned to the foreground after the event WebSocket went quiet")
     }
     const online = () => resync("Network connection restored")
     window.addEventListener("pagehide", pagehide)
@@ -238,6 +233,16 @@ export function createClientConnection(initialApi: OpenCodeClient, options: Clie
       document.removeEventListener("visibilitychange", visibility)
     })
   }
+
+  if (options.idleWatchdog) {
+    const threshold = options.idleWatchdog
+    const timer = setInterval(() => {
+      if (Date.now() - lastActivity < threshold) return
+      resync("Event WebSocket idle watchdog threshold exceeded")
+    }, threshold / 4)
+    onCleanup(() => clearInterval(timer))
+  }
+
   void start()
 
   onCleanup(() => {

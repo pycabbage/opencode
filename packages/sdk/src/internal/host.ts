@@ -5,6 +5,7 @@ import { SessionRestart } from "@opencode/core/session/execution/restart"
 import { Session } from "@opencode/core/session"
 import { Workspace } from "@opencode/core/workspace"
 import { WorkspaceDriver } from "@opencode/core/workspace/driver"
+import { EventFeed } from "@opencode/server/event-feed"
 import { createEmbeddedRoutes } from "@opencode/server/routes"
 import type { ServerOptions } from "@opencode/server/options"
 import type { LayerNode } from "@opencode/util/effect/layer-node"
@@ -31,19 +32,18 @@ export const create = Effect.fn("EmbeddedHost.create")(function* <R = never>(
 ) {
   const { log, workspaceProviders, instances, ...server } = options
   const selector = instances ? SdkInstances.provide(instances, yield* Effect.context<R>()) : undefined
-  const runtime = ManagedRuntime.make(
-    createEmbeddedRoutes(
-      {
-        ...server,
-        app: { ...server.app, name: server.app?.name ?? "sdk" },
-        database: { path: ":memory:", ...server.database },
-      },
-      workspaceProviders
-        ? [...(embed.overrides ?? []), WorkspaceDriver.node.replace(WorkspaceDriver.registryNode(workspaceProviders))]
-        : embed.overrides,
-      selector ? (replacements) => SdkInstances.node(selector, replacements) : undefined,
-    ).pipe(Layer.provide(HttpServer.layerServices), Layer.provideMerge(layer(log))),
-  )
+  const application = createEmbeddedRoutes(
+    {
+      ...server,
+      app: { ...server.app, name: server.app?.name ?? "sdk" },
+      database: { path: ":memory:", ...server.database },
+    },
+    workspaceProviders
+      ? [...(embed.overrides ?? []), WorkspaceDriver.node.replace(WorkspaceDriver.registryNode(workspaceProviders))]
+      : embed.overrides,
+    selector ? (replacements) => SdkInstances.node(selector, replacements) : undefined,
+  ).pipe(Layer.provide(HttpServer.layerServices), Layer.provideMerge(layer(log)))
+  const runtime = ManagedRuntime.make(EventFeed.layer().pipe(Layer.provideMerge(application)))
 
   return yield* Effect.gen(function* () {
     const services = yield* runtime.contextEffect
@@ -61,6 +61,7 @@ export const create = Effect.fn("EmbeddedHost.create")(function* <R = never>(
       plugins: Context.get(services, SdkPlugins.Service),
       sessions: Context.get(services, Session.Service),
       workspace: Context.get(services, Workspace.Service),
+      events: Context.get(services, EventFeed.Service),
       close: transport.close,
     }
   }).pipe(Effect.onError(() => runtime.disposeEffect))

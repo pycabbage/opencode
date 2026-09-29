@@ -1,10 +1,11 @@
 export * as PromiseSdk from "./promise"
 
-import { OpenCode, type OpenCodeClient } from "@opencode/client"
+import { OpenCode, type OpenCodeClient, type OpenCodeEvent } from "@opencode/client"
 import type { Plugin } from "@opencode/plugin"
 import { Session } from "@opencode/schema/session"
 import { Effect, Schema } from "effect"
 import { EmbeddedHost } from "./internal/host"
+import { SdkEvents } from "./internal/events"
 
 export interface InstanceConfiguration {
   readonly plugins: ReadonlyArray<Plugin.Plugin>
@@ -61,7 +62,9 @@ export async function create(options: CreateOptions = {}, embed: EmbeddedHost.Em
   return {
     ...client,
     sessions: client.session,
-    events: client.event,
+    events: {
+      subscribe: (subscribeOptions) => SdkEvents.subscribe(host, subscribeOptions) as AsyncIterable<OpenCodeEvent>,
+    },
     plugin: Object.assign(register, client.plugin),
     close: host.close,
     [Symbol.asyncDispose]: host.close,

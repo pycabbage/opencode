@@ -23,6 +23,11 @@ export const UrlSource = Schema.Struct({
   url: Schema.String,
 }).annotate({ identifier: "Skill.UrlSource" })
 
+export interface R2Source extends Schema.Schema.Type<typeof R2Source> {}
+export const R2Source = Schema.Struct({
+  type: Schema.tag("r2"),
+}).annotate({ identifier: "Skill.R2Source" })
+
 export interface Info extends Schema.Schema.Type<typeof Info> {}
 export const Info = Schema.Struct({
   id: ID,
@@ -42,9 +47,9 @@ export const EmbeddedSource = Schema.Struct({
   skill: Schema.suspend(() => Info),
 }).annotate({ identifier: "Skill.EmbeddedSource" })
 
-export type Source = DirectorySource | UrlSource | EmbeddedSource
+export type Source = DirectorySource | UrlSource | EmbeddedSource | R2Source
 export const Source = Object.assign(
-  Schema.Union([DirectorySource, UrlSource, EmbeddedSource]).pipe(
+  Schema.Union([DirectorySource, UrlSource, EmbeddedSource, R2Source]).pipe(
     Schema.toTaggedUnion("type"),
     Schema.annotate({ identifier: "Skill.Source" }),
   ),
@@ -54,13 +59,15 @@ export const Source = Object.assign(
       if (a.type === "directory" && b.type === "directory") return a.path === b.path
       if (a.type === "url" && b.type === "url") return a.url === b.url
       if (a.type === "embedded" && b.type === "embedded") return a.skill.id === b.skill.id
-      return false
+      return a.type === "r2"
     },
     key: (source: Source) =>
       source.type === "directory"
         ? `directory:${source.path}`
         : source.type === "url"
           ? `url:${source.url}`
-          : `embedded:${source.skill.id}`,
+          : source.type === "embedded"
+            ? `embedded:${source.skill.id}`
+            : "r2:skills",
   },
 )

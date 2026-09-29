@@ -412,6 +412,91 @@ export function make(options: ClientOptions) {
     },
   })
 
+  const subscribeWs = <A>(descriptor: RequestDescriptor, requestOptions?: RequestOptions): AsyncIterable<A> => ({
+    async *[Symbol.asyncIterator]() {
+      const wsBase = new URL(options.baseUrl)
+      if (!wsBase.pathname.endsWith("/")) wsBase.pathname += "/"
+      const url = new URL(descriptor.path.slice(1), wsBase)
+      for (const [key, value] of Object.entries(descriptor.query ?? {})) appendQuery(url.searchParams, key, value)
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+      // A browser cannot set an Authorization header on a WebSocket upgrade, so mirror the same
+      // Basic credential prepare() sends as a header here as the auth_token query parameter
+      // instead, matching packages/server/src/middleware/authorization.ts's credentialFromRequest.
+      const authHeaders = new Headers(options.headers)
+      for (const [key, value] of new Headers(requestOptions?.headers)) authHeaders.set(key, value)
+      const authMatch = /^Basic\s+(.+)$/i.exec(authHeaders.get("authorization") ?? "")
+      if (authMatch) url.searchParams.set("auth_token", authMatch[1])
+      let socket: WebSocket
+      try {
+        socket = new WebSocket(url)
+      } catch (cause) {
+        throw new ClientError("Transport", { cause })
+      }
+      const queue: A[] = []
+      let closed = false
+      let failure: unknown
+      let wake: (() => void) | undefined
+      const notify = () => {
+        wake?.()
+        wake = undefined
+      }
+      const close = () => {
+        closed = true
+        notify()
+      }
+      const fail = (error: unknown) => {
+        failure = error
+        close()
+        try {
+          socket.close()
+        } catch {}
+      }
+      const abort = () => {
+        close()
+        try {
+          socket.close(1000, "Event subscription aborted")
+        } catch {}
+      }
+      socket.addEventListener("message", (message) => {
+        requestOptions?.onActivity?.()
+        if (typeof message.data !== "string") {
+          fail(new ClientError("MalformedResponse", { detail: "Expected a text WebSocket message" }))
+          return
+        }
+        try {
+          queue.push(JSON.parse(message.data) as A)
+        } catch (cause) {
+          fail(new ClientError("MalformedResponse", { cause }))
+          return
+        }
+        notify()
+      })
+      socket.addEventListener("error", () => fail(new ClientError("Transport", { detail: "WebSocket error" })))
+      socket.addEventListener("close", close)
+      requestOptions?.signal?.addEventListener("abort", abort, { once: true })
+      try {
+        while (true) {
+          const event = queue.shift()
+          if (event !== undefined) {
+            yield event
+            continue
+          }
+          if (failure !== undefined) throw failure
+          if (closed) return
+          await new Promise<void>((resolve) => {
+            wake = resolve
+          })
+        }
+      } finally {
+        requestOptions?.signal?.removeEventListener("abort", abort)
+        close()
+        try {
+          socket.close(1000, "Event subscription ended")
+        } catch {}
+      }
+    },
+  })
+
   return {
     server: {
       info: (requestOptions?: RequestOptions) =>
@@ -1658,7 +1743,7 @@ export function make(options: ClientOptions) {
     },
     event: {
       subscribe: (requestOptions?: RequestOptions): AsyncIterable<EventSubscribeOutput> =>
-        sse<EventSubscribeOutput>(
+        subscribeWs<EventSubscribeOutput>(
           { method: "GET", path: `/api/event`, successStatus: 200, declaredStatuses: [400, 401], empty: false },
           requestOptions,
         ),

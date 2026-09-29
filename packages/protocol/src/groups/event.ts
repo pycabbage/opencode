@@ -42,17 +42,31 @@ const make = <const Definitions extends ReadonlyArray<Definition>>(definitions: 
     group: HttpApiGroup.make("server.event")
       .add(
         HttpApiEndpoint.get("event.subscribe", "/api/event", {
+          // The Effect API client uses this stream marker for its typed event contract. The
+          // OpenAPI transform below replaces the HTTP stream response with the WebSocket contract.
           success: HttpApiSchema.StreamSse({ data: EventSchema }),
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "event.subscribe",
-            summary: "Subscribe to events",
+            summary: "Subscribe to events over WebSocket",
             description:
-              "Subscribe to native events and plugin RPC events across all server locations. Volatile by contract: a slow consumer overflows and fails the stream, and events during disconnection are missed.",
+              "Receive one JSON-encoded native or plugin RPC event per WebSocket message. Events during disconnection are missed.",
+            transform: (operation) => {
+              const responses = { ...operation.responses }
+              delete responses["200"]
+              return {
+                ...operation,
+                "x-websocket": true,
+                responses: {
+                  ...responses,
+                  "101": { description: "WebSocket accepted; each message contains one JSON event." },
+                },
+              }
+            },
           }),
         ),
       )
-      .annotateMerge(OpenApi.annotations({ title: "event", description: "Experimental event stream routes." })),
+      .annotateMerge(OpenApi.annotations({ title: "event", description: "Experimental WebSocket event subscription." })),
   }
 }
 

@@ -48,11 +48,11 @@ export const { use: useGlobal, provider: GlobalProvider } = createSimpleContext(
       return serverCtx
     }
 
-    // A server that rejects our credentials would retry its event stream every second with the same
-    // credentials, so its controller waits until health recovers and then starts with the current ones.
+    const hasRejectedCredentials = (conn: ServerConnection.Any) => serverHealth[ServerConnection.key(conn)]?.unauthorized
+
     createMemo(() => {
       for (const conn of server.list) {
-        if (serverHealth[ServerConnection.key(conn)]?.unauthorized) continue
+        if (hasRejectedCredentials(conn)) continue
         ensureServerCtx(conn)
       }
     })

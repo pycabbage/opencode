@@ -7,6 +7,7 @@ import { Context, Effect, Layer, Types } from "effect"
 import { Skill } from "@opencode/schema/skill"
 import { Bus } from "./bus.js"
 import { Permission } from "./permission.js"
+import type { WorkerdR2 } from "./workerd/r2.js"
 import { State } from "./state.js"
 
 export const DirectorySource = Skill.DirectorySource
@@ -17,6 +18,9 @@ export type UrlSource = Skill.UrlSource
 
 export const EmbeddedSource = Skill.EmbeddedSource
 export type EmbeddedSource = Skill.EmbeddedSource
+
+export const R2Source = Skill.R2Source
+export type R2Source = Skill.R2Source
 
 export const Source = Skill.Source
 export type Source = Skill.Source
@@ -52,8 +56,27 @@ export const toModelOutput = (skill: Info, files: ReadonlyArray<string>) => {
   ].join("\n")
 }
 
-export const prepare = Effect.fn("Skill.prepare")(function* (fs: FSUtil.Interface, skill: Info) {
+export const prepare = Effect.fn("Skill.prepare")(function* (
+  fs: FSUtil.Interface,
+  skill: Info,
+  r2?: WorkerdR2.Interface,
+) {
   const directory = path.dirname(skill.path)
+  if (skill.path.startsWith("skills://")) {
+    const name = directory.slice("skills://".length)
+    const files =
+      path.basename(skill.path) === "SKILL.md" && name.length > 0 && r2 !== undefined
+        ? (yield* r2.listObjects(`skills/${name}/`))
+            .map((key) => `skills://${name}/${key}`)
+            .filter((file) => path.basename(file) !== "SKILL.md")
+            .toSorted()
+            .slice(0, 10)
+        : []
+    return {
+      directory,
+      output: toModelOutput(skill, files),
+    }
+  }
   const files =
     path.basename(skill.path) === "SKILL.md"
       ? (yield* fs.scan("**/*", { cwd: directory, absolute: true, include: "file", dot: true }))

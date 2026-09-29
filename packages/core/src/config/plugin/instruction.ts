@@ -10,6 +10,7 @@ import { InstructionDiscovery } from "../../instruction-discovery.js"
 import { Instructions } from "../../instructions/index.js"
 import { Location } from "../../location.js"
 import { AbsolutePath } from "../../schema.js"
+import { read as readDurableGlobal } from "#global-instruction-source"
 
 type Loaded =
   | { readonly type: "available"; readonly files: InstructionDiscovery.File[] }
@@ -61,6 +62,10 @@ export const Plugin = define({
 
       const globalSource = Effect.fn("ConfigInstructionPlugin.globalSource")(function* () {
         if (!discovery.global) return []
+        // The runtime's durable global source (R2 on workerd) replaces the
+        // volatile local path; runtimes without one keep the existing read.
+        const durable = yield* readDurableGlobal()
+        if (durable) return [durable]
         const file = yield* read(globalFile)
         return file ? [file] : []
       })

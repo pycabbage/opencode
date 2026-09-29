@@ -96,8 +96,8 @@ function createServerSdkContextBase(server: ServerConnection.Any, scope: ServerS
     },
     log: {
       info(message, data) {
-        if (message !== "event stream disconnected") return
-        console.info("[global-sdk] event stream disconnected", { url: transport.url, managed: !!reconnect, ...data })
+        if (message !== "event WebSocket disconnected") return
+        console.info("[global-sdk] event WebSocket disconnected", { url: transport.url, managed: !!reconnect, ...data })
       },
     },
   })

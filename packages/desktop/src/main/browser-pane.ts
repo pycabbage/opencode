@@ -119,7 +119,11 @@ export function createBrowserPane(storage: StateStore) {
             const authorization = target.endpoint.password
               ? `Basic ${Buffer.from(`${target.endpoint.username ?? "opencode"}:${target.endpoint.password}`).toString("base64")}`
               : SidecarCredentials.authorization(SidecarCredentials.get(), target.endpoint.url)
-            const client = yield* OpenCode.make({ baseUrl: target.endpoint.url }).pipe(
+            // A browser cannot set an Authorization header on a WebSocket upgrade, so
+            // client.event.subscribe() carries the same Base64 credential as the `auth_token` query
+            // parameter instead (see packages/client/src/effect/websocket-events.ts).
+            const authToken = authorization ? /^Basic\s+(.+)$/i.exec(authorization)?.[1] : undefined
+            const client = yield* OpenCode.make({ baseUrl: target.endpoint.url, authToken }).pipe(
               Effect.provideService(
                 HttpClient.HttpClient,
                 authorization

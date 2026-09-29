@@ -1389,6 +1389,40 @@ describe("HttpApiCodegen.generate", () => {
     expect(output.operations[0]?.success).toBe("stream")
   })
 
+  test("marks only caller-designated endpoints as websocket", () => {
+    const endpoint = () =>
+      HttpApiEndpoint.get("subscribe", "/event", {
+        success: HttpApiSchema.StreamSse({ data: Schema.Struct({ type: Schema.String }) }),
+      })
+
+    const withoutOption = compileContract(api(endpoint()))
+    expect(withoutOption.groups[0]?.endpoints[0]?.operation.websocket).toBeUndefined()
+
+    const notDesignated = compileContract(api(endpoint()), { websocketEndpoints: new Set(["other"]) })
+    expect(notDesignated.groups[0]?.endpoints[0]?.operation.websocket).toBeUndefined()
+
+    const designated = compileContract(api(endpoint()), { websocketEndpoints: new Set(["subscribe"]) })
+    expect(designated.groups[0]?.endpoints[0]?.operation.websocket).toBe(true)
+  })
+
+  test("emits an inline subscribeWs helper for websocket-designated endpoints, no external import", () => {
+    const contract = compileContract(
+      api(
+        HttpApiEndpoint.get("subscribe", "/event", {
+          success: HttpApiSchema.StreamSse({ data: Schema.Struct({ type: Schema.String }) }),
+        }),
+      ),
+      { websocketEndpoints: new Set(["subscribe"]) },
+    )
+    const output = emitPromise(contract)
+    const client = output.files.find((file) => file.path === "client.ts")?.content
+
+    expect(client).toContain("const subscribeWs = <A>(descriptor: RequestDescriptor")
+    expect(client).toContain("subscribeWs<SessionSubscribeOutput>(")
+    expect(client).not.toContain("subscribeWebSocketEvents")
+    expect(client).not.toMatch(/^import.*websocket/im)
+  })
+
   test("emits opaque Promise SSE fields as any", () => {
     const output = emitPromise(
       compileContract(

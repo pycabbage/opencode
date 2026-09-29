@@ -184,7 +184,7 @@ smoke(
       expect(root.cwd).not.toBe(process.cwd())
       expect(yield* waitForText(base, root.id, `root-cwd:${root.cwd}`)).toContain(`root-cwd:${root.cwd}`)
       yield* request(base, "DELETE", `/api/experimental/persistent-pty/${root.id}`)
-      const events = yield* Effect.promise(() => openEventStream(base))
+      const events = yield* Effect.promise(() => openEventSocket(base))
       const first = Schema.decodeUnknownSync(PersistentPty.Info)(
         (yield* request(base, "POST", `/api/experimental/session/${sessionID}/terminal`, {
           command: "/usr/bin/env",
@@ -306,7 +306,7 @@ smoke(
       )
       yield* attachAndExit(base, visible.id)
       yield* waitForTerminals(base, sessionID, [])
-      yield* Effect.promise(() => events.close())
+      yield* Effect.sync(() => events.close())
     }),
   20_000,
 )
@@ -456,36 +456,40 @@ function request(base: string, method: string, pathname: string, body?: unknown,
   })
 }
 
-async function openEventStream(base: string) {
-  const response = await fetch(new URL("/api/event", base), {
-    headers: { authorization: `Basic ${btoa("opencode:secret")}` },
+async function openEventSocket(base: string) {
+  const url = new URL("/api/event", base)
+  url.protocol = "ws:"
+  url.searchParams.set("auth_token", btoa("opencode:secret"))
+  const socket = new WebSocket(url)
+  const messages: Array<Record<string, unknown>> = []
+  const waiters: Array<{ type: string; resolve: (event: Record<string, unknown>) => void }> = []
+  socket.addEventListener("message", (message) => {
+    if (typeof message.data !== "string") return
+    let value: unknown
+    try {
+      value = JSON.parse(message.data)
+    } catch {
+      return
+    }
+    if (!isRecord(value) || typeof value.type !== "string") return
+    const index = waiters.findIndex((waiter) => waiter.type === value.type)
+    const waiter = index < 0 ? undefined : waiters.splice(index, 1)[0]
+    if (waiter) waiter.resolve(value)
+    else messages.push(value)
   })
-  if (!response.ok || !response.body) throw new Error(`Persistent PTY event stream failed (${response.status})`)
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let pending = ""
+  const opened = new Promise<void>((resolve, reject) => {
+    socket.addEventListener("open", () => resolve(), { once: true })
+    socket.addEventListener("error", () => reject(new Error("Persistent PTY event WebSocket failed")), { once: true })
+  })
+  await opened
   return {
-    async next(type: string) {
-      while (true) {
-        const boundary = pending.indexOf("\n\n")
-        if (boundary !== -1) {
-          const frame = pending.slice(0, boundary)
-          pending = pending.slice(boundary + 2)
-          const data = frame
-            .split("\n")
-            .find((line) => line.startsWith("data: "))
-            ?.slice(6)
-          if (!data) continue
-          const event: unknown = JSON.parse(data)
-          if (isRecord(event) && event.type === type) return event
-          continue
-        }
-        const chunk = await reader.read()
-        if (chunk.done) throw new Error(`Persistent PTY event stream closed before ${type}`)
-        pending += decoder.decode(chunk.value, { stream: true })
-      }
+    next(type: string) {
+      const index = messages.findIndex((event) => event.type === type)
+      const event = index < 0 ? undefined : messages.splice(index, 1)[0]
+      if (event) return Promise.resolve(event)
+      return new Promise<Record<string, unknown>>((resolve) => waiters.push({ type, resolve }))
     },
-    close: () => reader.cancel(),
+    close: () => socket.close(),
   }
 }
 

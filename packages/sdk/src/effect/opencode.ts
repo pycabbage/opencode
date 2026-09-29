@@ -1,12 +1,15 @@
 export * as OpenCode from "./opencode"
 
-import { OpenCode, type OpenCodeClient } from "@opencode/client/effect"
+import { ClientError, OpenCode, type OpenCodeClient } from "@opencode/client/effect"
 import type { Session } from "@opencode/core/session"
 import type { Workspace } from "@opencode/core/workspace"
-import { Context, Effect, Layer } from "effect"
+import type { SessionNotFoundError } from "@opencode/protocol/errors"
+import { missingSession } from "@opencode/server/handlers/session-error"
+import { Context, Effect, Layer, Stream } from "effect"
 import type { Config, Scope } from "effect"
 import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { EmbeddedHost } from "../internal/host"
+import { SdkEvents } from "../internal/events"
 import type { SdkInstances } from "../internal/instances"
 
 export type { LogEntry, LogLevel, LogOptions, LogWriter } from "../logging"
@@ -19,7 +22,9 @@ export type InstanceConfiguration = SdkInstances.Configuration
 export type Interface = Omit<OpenCodeClient, "plugin" | "workspace"> & {
   readonly sessions: Omit<OpenCodeClient["session"], "create" | "get" | "move"> & {
     readonly create: Session.Interface["create"]
-    readonly get: (input: { readonly sessionID: Session.ID }) => ReturnType<Session.Interface["get"]>
+    readonly get: (input: {
+      readonly sessionID: Session.ID
+    }) => Effect.Effect<Effect.Success<ReturnType<Session.Interface["get"]>>, SessionNotFoundError>
     readonly move: Session.Interface["move"]
   }
   readonly events: OpenCodeClient["event"]
@@ -54,10 +59,18 @@ export const create: <R = never>(
     sessions: {
       ...client.session,
       create: host.sessions.create,
-      get: (input: { readonly sessionID: Session.ID }) => host.sessions.get(input.sessionID),
+      get: (input: { readonly sessionID: Session.ID }) =>
+        host.sessions.get(input.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession)),
       move: host.sessions.move,
     },
-    events: client.event,
+    events: {
+      subscribe: () =>
+        Stream.unwrap(
+          host.events.subscribeEvents.pipe(
+            Effect.map((live) => Stream.make(SdkEvents.connectedEvent()).pipe(Stream.concat(live))),
+          ),
+        ).pipe(Stream.mapError((cause) => new ClientError({ cause }))),
+    },
     workspace: {
       create: host.workspace.create,
       provision: ({ workspaceID }: { readonly workspaceID: Workspace.ID }) => host.workspace.provision(workspaceID),

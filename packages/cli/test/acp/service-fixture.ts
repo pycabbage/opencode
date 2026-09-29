@@ -115,19 +115,18 @@ export function makeSession(
 export function makeACPFixture(options: FixtureOptions = {}) {
   const requests: FixtureRequest[] = []
   const updates: SessionNotification[] = []
-  const encoder = new TextEncoder()
-  let eventController: ReadableStreamDefaultController<Uint8Array> | undefined
+  let eventSocket: Bun.ServerWebSocket<unknown> | undefined
   const models = options.models ?? [testModel, secondModel]
   const context: FixtureContext = {
     requests,
     send(event) {
-      if (!eventController) throw new Error("ACP fixture has no active event stream")
-      eventController.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+      if (!eventSocket) throw new Error("ACP fixture has no active event stream")
+      eventSocket.send(JSON.stringify(event))
     },
   }
   const server = Bun.serve({
     port: 0,
-    async fetch(raw) {
+    async fetch(raw, server) {
       const url = new URL(raw.url)
       const request: FixtureRequest = {
         method: raw.method,
@@ -142,20 +141,8 @@ export function makeACPFixture(options: FixtureOptions = {}) {
       const directory = request.query["location[directory]"] ?? "/workspace"
       const location = { directory, project: { id: "global", directory } }
       if (request.path === "/api/event") {
-        let controller: ReadableStreamDefaultController<Uint8Array> | undefined
-        return new Response(
-          new ReadableStream<Uint8Array>({
-            start(value) {
-              controller = value
-              eventController = value
-              context.send({ id: "evt_connected", type: "server.connected", data: {} })
-            },
-            cancel() {
-              if (eventController === controller) eventController = undefined
-            },
-          }),
-          { headers: { "content-type": "text/event-stream" } },
-        )
+        if (server.upgrade(raw)) return
+        return new Response(null, { status: 426 })
       }
       if (request.path === "/api/model") return Response.json({ location, data: models })
       if (request.path === "/api/model/default") {
@@ -168,6 +155,16 @@ export function makeACPFixture(options: FixtureOptions = {}) {
         return Response.json({ location, data: options.commands ?? [reviewCommand] })
       }
       return new Response(null, { status: 404 })
+    },
+    websocket: {
+      open(socket) {
+        eventSocket = socket
+        context.send({ id: "evt_connected", type: "server.connected", data: {} })
+      },
+      message() {},
+      close(socket) {
+        if (eventSocket === socket) eventSocket = undefined
+      },
     },
   })
   const service = ACPService.make({
@@ -185,7 +182,7 @@ export function makeACPFixture(options: FixtureOptions = {}) {
     requests,
     updates,
     async [Symbol.asyncDispose]() {
-      eventController?.close()
+      eventSocket?.close()
       await server.stop(true)
     },
   }

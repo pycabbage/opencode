@@ -233,19 +233,8 @@ describe("useEvent", () => {
 
   test("backs off when a resolved event stream keeps failing", async () => {
     let calls = 0
-    const encoder = new TextEncoder()
-    const replacementCalls = createFetch((url) => {
-      if (url.pathname !== "/api/event") return undefined
-      return new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode('data: {"id":"evt_connected","type":"server.connected","data":{}}\n\n'))
-            controller.close()
-          },
-        }),
-        { headers: { "content-type": "text/event-stream" } },
-      )
-    })
+    const replacementEvents = createEventStream({ closeAfterConnect: true })
+    const replacementCalls = createFetch(undefined, replacementEvents)
     const replacement = {
       api: createApi(replacementCalls.fetch),
     }

@@ -78,6 +78,11 @@
       "node": "./src/database/v1-migration.noop.ts",
       "workerd": "./src/database/v1-migration.noop.ts",
       "default": "./src/database/v1-migration.noop.ts"
+    },
+    "#global-instruction-source": {
+      "types": "./src/config/plugin/global-instruction-source.ts",
+      "workerd": "./src/config/plugin/global-instruction-source.workerd.ts",
+      "default": "./src/config/plugin/global-instruction-source.ts"
     }
   },
   "devDependencies": {

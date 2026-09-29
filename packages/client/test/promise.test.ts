@@ -1,5 +1,12 @@
-import { expect, test } from "bun:test"
+import { afterEach, beforeEach, expect, test } from "bun:test"
 import { isSessionNotFoundError, isUnauthorizedError, OpenCode } from "../src/promise/index"
+import { FakeWebSocket, installFakeWebSocket } from "./fake-websocket"
+
+let restoreWebSocket: () => void
+beforeEach(() => {
+  restoreWebSocket = installFakeWebSocket()
+})
+afterEach(() => restoreWebSocket())
 
 test("exposes every standard HTTP API group", () => {
   const client = OpenCode.make({ baseUrl: "http://localhost:3000" })
@@ -45,13 +52,13 @@ test("exposes every standard HTTP API group", () => {
   expect(Object.keys(client.integration.oauth)).toEqual(["connect", "status", "complete", "cancel"])
   expect(Object.keys(client.integration.command)).toEqual(["connect", "status", "cancel"])
   expect(Object.keys(client.websearch)).toEqual(["providers", "query"])
-  expect(Object.keys(client.file)).toEqual(["read", "list", "find"])
-  expect(Object.keys(client.vcs)).toEqual(["get", "base", "status", "branches", "diff"])
+  expect(Object.keys(client.file)).toEqual(["read", "list", "find", "write"])
+  expect(Object.keys(client.vcs)).toEqual(["get", "base", "status", "branch", "diff"])
   expect(Object.keys(client.pty)).toEqual(["list", "create", "get", "update", "remove", "connect"])
   expect(Object.keys(client.pty.connect)).toEqual(["token"])
   expect(Object.keys(client.experimental)).toEqual(["persistentPty"])
   expect(client.experimental.persistentPty.read).toBeFunction()
-  expect(Object.keys(client.shell)).toEqual(["list", "create", "get", "timeout", "output", "remove"])
+  expect(Object.keys(client.shell)).toEqual(["list", "create", "get", "output", "remove"])
   expect(Object.keys(client.project)).toEqual(["list", "update"])
   expect(Object.keys(client.worktree)).toEqual(["list", "create", "remove", "refresh"])
 })
@@ -655,259 +662,102 @@ test("session.inbox mutations use the public HTTP contract", async () => {
   ])
 })
 
-test("event.subscribe exposes the Promise event stream wire projection", async () => {
+test("event.subscribe uses a WebSocket and yields one JSON event per message", async () => {
+  let fetches = 0
   const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
-    fetch: async () =>
-      new Response(
-        `: heartbeat\n\ndata: ${JSON.stringify({ id: "evt_connected", created: 0, type: "server.connected", data: {} })}\n\n` +
-          `data: ${JSON.stringify(modelSwitchedEvent)}\n\n`,
-        { headers: { "content-type": "text/event-stream" } },
-      ),
-  })
-  const events = []
-  for await (const event of client.event.subscribe()) events.push(event)
-
-  expect(events).toEqual([{ id: "evt_connected", created: 0, type: "server.connected", data: {} }, modelSwitchedEvent])
-  expect(events[1]?.type === "session.model.selected" && events[1].created).toBe(1_717_171_717_000)
-})
-
-// Moved from packages/app/e2e/regression/session-timeline-transport.spec.ts
-test("event.subscribe keeps one request open while delivering multiple events", async () => {
-  const requests: Request[] = []
-  const events = [
-    { id: "evt_first", created: 1, type: "server.connected", data: {} },
-    { id: "evt_second", created: 2, type: "server.connected", data: {} },
-  ]
-  const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
-    fetch: async (input, init) => {
-      requests.push(input instanceof Request ? input : new Request(input, init))
-      return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
-        headers: { "content-type": "text/event-stream" },
-      })
-    },
-  })
-  const received = []
-  for await (const event of client.event.subscribe()) received.push(event)
-  expect(received).toEqual(events)
-  expect(requests).toHaveLength(1)
-})
-
-// Moved from packages/app/e2e/regression/session-timeline-transport.spec.ts
-test("event.subscribe delivers every event from one stream chunk", async () => {
-  const events = Array.from({ length: 4 }, (_, index) => ({
-    id: `evt_burst_${index}`,
-    created: index,
-    type: "server.connected",
-    data: {},
-  }))
-  const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
-    fetch: async () =>
-      new Response(new TextEncoder().encode(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")), {
-        headers: { "content-type": "text/event-stream" },
-      }),
-  })
-  const received = []
-  for await (const event of client.event.subscribe()) received.push(event)
-  expect(received).toEqual(events)
-  expect(new Set(received.map((event) => event.id)).size).toBe(4)
-})
-
-// Moved from packages/app/e2e/regression/session-timeline-transport.spec.ts
-test("event.subscribe parses split JSON and a split multibyte code point", async () => {
-  const event = {
-    id: "evt_split",
-    created: 1,
-    type: "server.connected",
-    data: { text: "split snowman \u2603\u2603\u2603" },
-  }
-  const encoded = new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`)
-  const multibyte = encoded.indexOf(new TextEncoder().encode("\u2603")[0]!)
-  const boundaries = [9, multibyte + 1, multibyte + 2, encoded.length]
-  const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
-    fetch: async () =>
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            boundaries.forEach((end, index) =>
-              controller.enqueue(encoded.slice(index ? boundaries[index - 1] : 0, end)),
-            )
-            controller.close()
-          },
-        }),
-        { headers: { "content-type": "text/event-stream" } },
-      ),
-  })
-  await expect(client.event.subscribe()[Symbol.asyncIterator]().next()).resolves.toEqual({ done: false, value: event })
-})
-
-// Moved from packages/app/e2e/regression/session-timeline-transport.spec.ts
-test("event.subscribe ignores server heartbeat comments", async () => {
-  const event = { id: "evt_sentinel", created: 1, type: "server.connected", data: {} }
-  const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
-    fetch: async () =>
-      new Response(`: heartbeat\n\ndata: ${JSON.stringify(event)}\n\n: heartbeat\n\n`, {
-        headers: { "content-type": "text/event-stream" },
-      }),
-  })
-  const received = []
-  for await (const item of client.event.subscribe()) received.push(item)
-  expect(received).toEqual([event])
-})
-
-test("event.subscribe reports heartbeat comments as stream activity", async () => {
-  const event = { id: "evt_sentinel", created: 1, type: "server.connected", data: {} }
-  const encoder = new TextEncoder()
-  const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
-    fetch: async () =>
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode(": heartbeat\n\n"))
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-            controller.enqueue(encoder.encode(": heartbeat\n\n"))
-            controller.close()
-          },
-        }),
-        { headers: { "content-type": "text/event-stream" } },
-      ),
-  })
-  let activity = 0
-  const received = []
-  for await (const item of client.event.subscribe({ onActivity: () => activity++ })) received.push(item)
-  expect(received).toEqual([event])
-  expect(activity).toBe(3)
-})
-
-// Moved from packages/app/e2e/regression/session-timeline-transport.spec.ts
-test("event transport passes through ordinary info requests", async () => {
-  const requests: string[] = []
-  const event = { id: "evt_connected", created: 1, type: "server.connected", data: {} }
-  const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
-    fetch: async (input, init) => {
-      const request = input instanceof Request ? input : new Request(input, init)
-      requests.push(new URL(request.url).pathname)
-      if (new URL(request.url).pathname === "/api/event") {
-        return new Response(`data: ${JSON.stringify(event)}\n\n`, {
-          headers: { "content-type": "text/event-stream" },
-        })
-      }
-      return Response.json({
-        version: "2.0.0",
-        pid: 1,
-        urls: ["http://localhost:3000"],
-        paths: { tmp: "/tmp/opencode" },
-      })
-    },
-  })
-  await expect(client.event.subscribe()[Symbol.asyncIterator]().next()).resolves.toEqual({ done: false, value: event })
-  await expect(client.server.info()).resolves.toEqual({
-    version: "2.0.0",
-    pid: 1,
-    urls: ["http://localhost:3000"],
-    paths: { tmp: "/tmp/opencode" },
-  })
-  expect(requests).toEqual(["/api/event", "/api/info"])
-})
-
-test("event.subscribe terminates on malformed Promise SSE data", async () => {
-  const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
-    fetch: async () => new Response("data: {not-json}\n\n", { headers: { "content-type": "text/event-stream" } }),
-  })
-
-  await expect(client.event.subscribe()[Symbol.asyncIterator]().next()).rejects.toMatchObject({
-    name: "ClientError",
-    reason: "MalformedResponse",
-  })
-})
-
-test("native event signals cancel only their listener and close transport after the last listener", async () => {
-  const opened = Promise.withResolvers<Request>()
-  const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
-    headers: { authorization: "Bearer events" },
-    fetch: async (input, init) => {
-      const request = new Request(input, init)
-      opened.resolve(request)
-      return new Response(
-        new ReadableStream({
-          start(controller) {
-            request.signal.addEventListener("abort", () => controller.error(request.signal.reason), { once: true })
-          },
-        }),
-        { headers: { "content-type": "text/event-stream" } },
-      )
-    },
-  })
-  const first = new AbortController()
-  const second = new AbortController()
-  const one = client.event.subscribe({ signal: first.signal })[Symbol.asyncIterator]().next()
-  const two = client.event.subscribe({ signal: second.signal })[Symbol.asyncIterator]().next()
-  const request = await opened.promise
-  expect(request.headers.get("authorization")).toBe("Bearer events")
-  first.abort()
-  expect((await one).done).toBe(true)
-  expect(request.signal.aborted).toBe(false)
-  second.abort()
-  expect((await two).done).toBe(true)
-  expect(request.signal.aborted).toBe(true)
-})
-
-test("native pre-aborted event signals do not open a transport", async () => {
-  let requests = 0
-  const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
+    baseUrl: "https://opencode.example/prefix",
     fetch: async () => {
-      requests++
-      return new Response(null)
+      fetches++
+      return Response.json({})
     },
   })
-  expect((await client.event.subscribe({ signal: AbortSignal.abort() })[Symbol.asyncIterator]().next()).done).toBe(true)
-  expect(requests).toBe(0)
+  const iterator = client.event.subscribe()[Symbol.asyncIterator]()
+  const connected = iterator.next()
+  const socket = FakeWebSocket.instances[0]
+  if (!socket) throw new Error("Expected an event WebSocket")
+  expect(socket.url).toBe("wss://opencode.example/prefix/api/event")
+  socket.open()
+  const connectedEvent = { id: "evt_connected", type: "server.connected", data: {} }
+  socket.message(JSON.stringify(connectedEvent))
+  await expect(connected).resolves.toEqual({ done: false, value: connectedEvent })
+
+  const next = iterator.next()
+  socket.message(JSON.stringify(modelSwitchedEvent))
+  await expect(next).resolves.toEqual({ done: false, value: modelSwitchedEvent })
+  expect(fetches).toBe(0)
+
+  const closed = iterator.next()
+  socket.close()
+  await expect(closed).resolves.toMatchObject({ done: true })
 })
 
-test("event.subscribe accepts a fragmented SSE event below the size limit", async () => {
-  const event = { id: "evt_large", type: "test.large", data: { output: "x".repeat(12 * 1024 * 1024) } }
-  const encoded = new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`)
-  const client = OpenCode.make({
-    baseUrl: "http://localhost:3000",
-    fetch: async () =>
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            for (let offset = 0; offset < encoded.length; offset += 64 * 1024) {
-              controller.enqueue(encoded.slice(offset, offset + 64 * 1024))
-            }
-            controller.close()
-          },
-        }),
-        { headers: { "content-type": "text/event-stream" } },
-      ),
-  })
-
-  await expect(client.event.subscribe()[Symbol.asyncIterator]().next()).resolves.toEqual({ done: false, value: event })
+test("event WebSocket reports transport activity for each received message and sends nothing on its own", async () => {
+  let activity = 0
+  const client = OpenCode.make({ baseUrl: "http://localhost:3000" })
+  const iterator = client.event.subscribe({ onActivity: () => activity++ })[Symbol.asyncIterator]()
+  const connected = iterator.next()
+  const socket = FakeWebSocket.instances[0]
+  if (!socket) throw new Error("Expected an event WebSocket")
+  socket.open()
+  socket.message(JSON.stringify({ id: "evt_connected", type: "server.connected", data: {} }))
+  await connected
+  expect(socket.sent).toEqual([])
+  expect(activity).toBe(1)
+  await iterator.return?.()
 })
 
-test("event.subscribe rejects an SSE event above the size limit", async () => {
+test("shared WebSocket event subscribers close the transport after the last listener", async () => {
+  const client = OpenCode.make({ baseUrl: "http://localhost:3000" })
+  const firstSignal = new AbortController()
+  const secondSignal = new AbortController()
+  const first = client.event.subscribe({ signal: firstSignal.signal })[Symbol.asyncIterator]()
+  const second = client.event.subscribe({ signal: secondSignal.signal })[Symbol.asyncIterator]()
+  const firstEvent = first.next()
+  const secondEvent = second.next()
+  const socket = FakeWebSocket.instances[0]
+  if (!socket) throw new Error("Expected one shared event WebSocket")
+  expect(FakeWebSocket.instances).toHaveLength(1)
+  socket.open()
+  const event = { id: "evt_connected", type: "server.connected", data: {} }
+  socket.message(JSON.stringify(event))
+  await expect(firstEvent).resolves.toEqual({ done: false, value: event })
+  await expect(secondEvent).resolves.toEqual({ done: false, value: event })
+
+  firstSignal.abort()
+  expect((await first.next()).done).toBe(true)
+  expect(socket.readyState).toBe(FakeWebSocket.OPEN)
+  secondSignal.abort()
+  expect((await second.next()).done).toBe(true)
+  expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
+})
+
+test("event WebSocket rejects malformed JSON frames", async () => {
+  const client = OpenCode.make({ baseUrl: "http://localhost:3000" })
+  const pending = client.event.subscribe()[Symbol.asyncIterator]().next()
+  const socket = FakeWebSocket.instances[0]
+  if (!socket) throw new Error("Expected an event WebSocket")
+  socket.open()
+  socket.message("{not-json}")
+  await expect(pending).rejects.toMatchObject({ name: "ClientError", reason: "MalformedResponse" })
+})
+
+test("event WebSocket carries the ClientOptions Basic Authorization header as an auth_token query parameter", async () => {
   const client = OpenCode.make({
     baseUrl: "http://localhost:3000",
-    fetch: async () =>
-      new Response(`data: ${JSON.stringify({ output: "x".repeat(16 * 1024 * 1024) })}`, {
-        headers: { "content-type": "text/event-stream" },
-      }),
+    headers: { Authorization: "Basic b3BlbmNvZGU6c2VjcmV0" },
   })
+  void client.event.subscribe()[Symbol.asyncIterator]().next()
+  const socket = FakeWebSocket.instances[0]
+  if (!socket) throw new Error("Expected an event WebSocket")
+  expect(new URL(socket.url).searchParams.get("auth_token")).toBe("b3BlbmNvZGU6c2VjcmV0")
+})
 
-  await expect(client.event.subscribe()[Symbol.asyncIterator]().next()).rejects.toMatchObject({
-    name: "ClientError",
-    reason: "SseEventTooLarge",
-  })
+test("event WebSocket omits auth_token when no Authorization header is configured", async () => {
+  const client = OpenCode.make({ baseUrl: "http://localhost:3000" })
+  void client.event.subscribe()[Symbol.asyncIterator]().next()
+  const socket = FakeWebSocket.instances[0]
+  if (!socket) throw new Error("Expected an event WebSocket")
+  expect(new URL(socket.url).searchParams.has("auth_token")).toBe(false)
 })
 
 test("session methods use the public HTTP contract", async () => {
@@ -917,11 +767,6 @@ test("session methods use the public HTTP contract", async () => {
     fetch: async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       requests.push({ url, init })
-      if (url.includes("/event")) {
-        return new Response(`data: ${JSON.stringify(modelSwitchedEvent)}\n\n`, {
-          headers: { "content-type": "text/event-stream" },
-        })
-      }
       if (url.includes("/log")) {
         return new Response(`data: ${JSON.stringify(modelSwitchedEvent)}\n\ndata: ${JSON.stringify(synced)}\n\n`, {
           headers: { "content-type": "text/event-stream" },
@@ -967,7 +812,7 @@ test("session methods use the public HTTP contract", async () => {
   const context = await client.session.context({ sessionID: "ses_test" })
   const log = []
   for await (const item of client.session.log({ sessionID: "ses_test", after: 0 })) log.push(item)
-  const interrupted = await client.session.interrupt({ sessionID: "ses_test", continue: true })
+  const interrupted = await client.session.interrupt({ sessionID: "ses_test", resume: true })
   const message = await client.session.message.get({ sessionID: "ses_test", messageID: "msg_model" })
 
   expect(page.cursor.next).toBe("next")
@@ -995,7 +840,7 @@ test("session methods use the public HTTP contract", async () => {
     ["POST", "http://localhost:3000/api/experimental/session/ses_test/wait"],
     ["GET", "http://localhost:3000/api/session/ses_test/context"],
     ["GET", "http://localhost:3000/api/experimental/session/ses_test/log?after=0"],
-    ["POST", "http://localhost:3000/api/session/ses_test/interrupt?continue=true"],
+    ["POST", "http://localhost:3000/api/session/ses_test/interrupt?resume=true"],
     ["GET", "http://localhost:3000/api/session/ses_test/message/msg_model"],
   ])
   const viewBody = requests.find((request) => request.url.endsWith("/api/session/ses_test/view"))?.init?.body

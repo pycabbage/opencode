@@ -39,6 +39,7 @@ import { Api } from "./api"
 import { ServerAuth } from "./auth"
 import { CorsConfig } from "./cors"
 import { handlers } from "./handlers"
+import type { OnEvent } from "./event-feed"
 import { authorizationLayer } from "./middleware/authorization"
 import { schemaErrorLayer } from "./middleware/schema-error"
 import { PtyEnvironment } from "./pty-environment"
@@ -81,6 +82,7 @@ export function createRoutes(
   options: ServerOptions = {},
   serviceURLs: () => ReadonlyArray<string> = () => [],
   overrides: LayerNode.Replacements = [],
+  onEvent?: OnEvent,
 ) {
   return makeRoutes(
     options.password
@@ -89,6 +91,8 @@ export function createRoutes(
     options,
     serviceURLs,
     overrides,
+    undefined,
+    onEvent,
   )
 }
 
@@ -111,6 +115,7 @@ function makeRoutes<AuthError, AuthServices>(
   // Runtime-profile replacements (e.g. workerd) applied after the standard set, so later entries win.
   overrides: LayerNode.Replacements,
   instances?: InstanceNode,
+  onEvent?: OnEvent,
 ) {
   const standard: LayerNode.Replacements = [
     Database.node.replace(Database.configured(options.database)),
@@ -174,7 +179,7 @@ function makeRoutes<AuthError, AuthServices>(
         ServerInfo.layer(serviceURLs, Context.get(context, Global.Service).tmp, options.app),
       )
       const api = HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
-        Layer.provide(handlers.pipe(Layer.provide(services), Layer.provide(Layer.succeed(CorsConfig, options)))),
+        Layer.provide(handlers(onEvent).pipe(Layer.provide(services), Layer.provide(Layer.succeed(CorsConfig, options)))),
         Layer.provide(formLocationLayer),
         Layer.provide(sessionLocationLayer),
         Layer.provide(layer),

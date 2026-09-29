@@ -90,25 +90,21 @@ it.live("authenticates API requests behind the frontend transform while allowing
         }),
     )
 
-    const event = yield* Effect.promise(() =>
-      fetch(new URL("/api/event", HttpServer.formatAddress(server.address)), {
-        headers: {
-          "accept-encoding": "br",
-          authorization: `Basic ${btoa("opencode:secret")}`,
-        },
-      }),
-    )
-    expect(event.status).toBe(200)
-    expect(event.headers.get("content-encoding")).toBeNull()
-    const body = event.body
-    if (!body) return yield* Effect.die(new Error("Event response has no body"))
-    const reader = body.getReader()
-    yield* Effect.promise(() => readUntil(reader, "server.connected"))
+    const eventUrl = new URL("/api/event", HttpServer.formatAddress(server.address))
+    eventUrl.protocol = "ws:"
+    eventUrl.searchParams.set("auth_token", btoa("opencode:secret"))
+    const eventSocket = new WebSocket(eventUrl)
+    const connected = nextSocketEvent(eventSocket, "server.connected")
+    yield* Effect.promise(() => connected)
+
+    const updateAvailable = nextSocketEvent(eventSocket, "installation.update-available")
     yield* server.updateAvailable("2.0.0")
-    yield* Effect.promise(() => readUntil(reader, "installation.update-available"))
+    yield* Effect.promise(() => updateAvailable)
+
+    const updated = nextSocketEvent(eventSocket, "installation.updated")
     yield* server.updated("2.0.0")
-    yield* Effect.promise(() => readUntil(reader, "installation.updated"))
-    yield* Effect.promise(() => reader.cancel())
+    yield* Effect.promise(() => updated)
+    eventSocket.close()
 
     const missing = yield* Effect.promise(() =>
       fetch(new URL("/missing", HttpServer.formatAddress(server.address)), {
@@ -229,10 +225,29 @@ it.live("pairing links sign in browsers with a cookie and API clients with a tok
   }),
 )
 
-async function readUntil(reader: ReadableStreamDefaultReader<Uint8Array>, expected: string) {
-  while (true) {
-    const next = await reader.read()
-    if (next.done) throw new Error(`Event stream ended before ${expected}`)
-    if (new TextDecoder().decode(next.value).includes(expected)) return
-  }
+function nextSocketEvent(socket: WebSocket, expected: string) {
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    const onMessage = (message: MessageEvent) => {
+      if (typeof message.data !== "string") return
+      let event: unknown
+      try {
+        event = JSON.parse(message.data)
+      } catch (cause) {
+        socket.removeEventListener("message", onMessage)
+        reject(cause)
+        return
+      }
+      if (typeof event === "object" && event !== null && "type" in event && event.type === expected) {
+        socket.removeEventListener("message", onMessage)
+        resolve(event)
+      }
+    }
+    const onError = () => {
+      socket.removeEventListener("message", onMessage)
+      reject(new Error(`Event WebSocket closed before ${expected}`))
+    }
+    socket.addEventListener("message", onMessage)
+    socket.addEventListener("error", onError, { once: true })
+    socket.addEventListener("close", onError, { once: true })
+  })
 }

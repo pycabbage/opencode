@@ -743,14 +743,10 @@ test("restores running manual compaction before applying live deltas", async () 
 
 test("reconnects the event stream and resyncs active data", async () => {
   const events = createEventStream()
-  const requests = { active: 0, event: 0, message: 0, model: 0 }
+  const requests = { active: 0, message: 0, model: 0 }
   let resolveActive!: (response: Response) => void
   let resolveMessages!: (response: Response) => void
   const calls = createFetch((url) => {
-    if (url.pathname === "/api/event") {
-      requests.event++
-      return events.v2()
-    }
     if (url.pathname === "/api/session/active") {
       requests.active++
       if (requests.active === 1) return json({ data: { "session-stale": { type: "running" } } })
@@ -822,7 +818,7 @@ test("reconnects the event stream and resyncs active data", async () => {
     events.disconnect()
     await wait(() => client.connection.status() === "reconnecting")
     expect(client.connection.attempt()).toBe(1)
-    expect(client.connection.error()).toBe("Event stream disconnected")
+    expect(client.connection.error()).toBe("Event WebSocket disconnected")
 
     await wait(() => requests.active === 2 && client.connection.status() === "connected", 4000)
     resolveActive(json({ data: { "session-new": { type: "running" } } }))
@@ -841,7 +837,7 @@ test("reconnects the event stream and resyncs active data", async () => {
     await wait(() => data.session.message.get("session-stale", "message-fresh") !== undefined)
     expect(data.session.message.get("session-stale", "message-stale")).toBeUndefined()
     await wait(() => data.session.status("session-new") === "running")
-    expect(requests.event).toBe(2)
+    expect(events.connections()).toBe(2)
     expect(requests.message).toBe(2)
     expect(client.connection.status()).toBe("connected")
     expect(client.connection.attempt()).toBe(0)
@@ -1219,31 +1215,8 @@ test("removes committed revert messages from local state", async () => {
 })
 
 test("distinguishes initial connection from reconnection", async () => {
-  const encoder = new TextEncoder()
-  let stream: ReadableStreamDefaultController<Uint8Array> | undefined
-  const eventResponse = () =>
-    new Response(
-      new ReadableStream<Uint8Array>({
-        start(controller) {
-          stream = controller
-        },
-      }),
-      { headers: { "content-type": "text/event-stream" } },
-    )
-  const connect = () =>
-    stream?.enqueue(
-      encoder.encode(
-        `data: ${JSON.stringify({ id: "evt_connected", created: 0, type: "server.connected", data: {} })}\n\n`,
-      ),
-    )
-  const disconnect = () => {
-    stream?.close()
-    stream = undefined
-  }
-
-  const calls = createFetch((url) => {
-    if (url.pathname === "/api/event") return eventResponse()
-  })
+  const events = createEventStream({ autoConnect: false })
+  const calls = createFetch(undefined, events)
   let client!: ReturnType<typeof useClient>
 
   function Probe() {
@@ -1264,13 +1237,13 @@ test("distinguishes initial connection from reconnection", async () => {
   ))
 
   try {
-    await wait(() => stream !== undefined)
+    await wait(() => events.attached() > 0)
     expect(client.connection.status()).toBe("connecting")
 
-    connect()
+    events.connect()
     await wait(() => client.connection.status() === "connected")
 
-    disconnect()
+    events.disconnect()
     await wait(() => client.connection.status() === "reconnecting")
   } finally {
     app.renderer.destroy()

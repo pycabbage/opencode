@@ -83,6 +83,10 @@ export const resolvePath = (directory: string, input: string, home = Global.Path
 }
 
 const slash = (value: string) => value.replaceAll("\\", "/")
+const resolveSkillsTarget = (input: ResolveInput): Target => ({
+  absolute: AbsolutePath.make(input.path),
+  resource: slash(input.path),
+})
 const invocation = (context: Invocation) => ({
   sessionID: context.sessionID,
   agent: context.agent,
@@ -97,6 +101,7 @@ const layer = Layer.effect(
     const permission = yield* Permission.Service
 
     const resolve = Effect.fn("FileAccess.resolve")(function* (input: ResolveInput) {
+      if (input.path.startsWith("skills://")) return resolveSkillsTarget(input)
       const absolute = AbsolutePath.make(resolvePath(location.directory, input.path))
       const worktree = path.resolve(location.project.directory)
       const internal =

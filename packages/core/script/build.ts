@@ -28,6 +28,7 @@ const result = await Bun.build({
     "#shell-parser-wasm",
     "#process-lock-ffi",
     "#v1-migration",
+    "#global-instruction-source",
   ],
   splitting: true,
   loader: {

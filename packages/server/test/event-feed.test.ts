@@ -3,6 +3,7 @@ import { Agent } from "@opencode/core/agent"
 import { Bus } from "@opencode/core/bus"
 import { Credential } from "@opencode/schema/credential"
 import { Event } from "@opencode/schema/event"
+import type { OpenCodeEvent } from "@opencode/protocol/groups/event"
 import { IntegrationID } from "@opencode/schema/integration-id"
 import { Deferred, Effect, Exit, Fiber, Option, Schema, Stream } from "effect"
 import { it } from "../../core/test/lib/effect"
@@ -39,10 +40,31 @@ function makeSource() {
 }
 
 describe("EventFeed", () => {
-  test("preserves the public SSE frame encoding", () => {
-    const payload = event("wire")
-    expect(EventFeed.frame(payload)).toBe(`data: ${JSON.stringify(payload)}\n\n`)
-  })
+  it.effect("encodes each public event as one JSON message", () =>
+    Effect.gen(function* () {
+      const payload = event("wire")
+      const source = makeSource()
+      const feed = yield* EventFeed.make(source.observe)
+      const stream = yield* feed.subscribe
+      yield* source.publish(payload)
+
+      expect(Array.from(yield* stream.pipe(Stream.take(1), Stream.runCollect))).toEqual([JSON.stringify(payload)])
+    }),
+  )
+
+  it.effect("publishes filtered public events directly without a stream subscriber", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const received: OpenCodeEvent[] = []
+      yield* EventFeed.make(source.observe, { onEvent: (payload) => received.push(payload) })
+
+      yield* source.publish(internal("private"))
+      yield* source.publish(event("public"))
+
+      expect(received).toHaveLength(1)
+      expect(received[0]?.type).toBe(Agent.Event.Updated.type)
+    }),
+  )
 
   it.effect("encodes once and delivers the same frame to every subscriber", () =>
     Effect.gen(function* () {
@@ -110,6 +132,28 @@ describe("EventFeed", () => {
       expect(Exit.isFailure(result)).toBeTrue()
       if (Exit.isSuccess(result)) return
       expect(Option.getOrUndefined(Exit.findErrorOption(result))).toBeInstanceOf(EventFeed.SubscriberOverflowError)
+    }),
+  )
+
+  it.effect("logs onEvent failures without disrupting subscriber delivery", () =>
+    Effect.gen(function* () {
+      const source = makeSource()
+      const seen: string[] = []
+      const feed = yield* EventFeed.make(source.observe, {
+        encode: (payload) => payload.id,
+        onEvent: (payload) => {
+          seen.push(payload.id)
+          if (payload.id === Event.ID.make("evt_bad")) throw new Error("onEvent boom")
+        },
+      })
+      const stream = yield* feed.subscribe
+      const received = yield* stream.pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped)
+
+      yield* source.publish(event("bad"))
+      yield* source.publish(event("good"))
+
+      expect(Array.from(yield* Fiber.join(received))).toEqual(["evt_bad", "evt_good"])
+      expect(seen).toEqual(["evt_bad", "evt_good"])
     }),
   )
 

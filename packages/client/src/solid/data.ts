@@ -1412,7 +1412,6 @@ export function createData(config: CreateDataInput) {
                 } else current.set(id, item)
               })
               const pending = [...current.values()]
-              // A positive read acknowledges admission even when its SSE echo is delayed.
               pending.forEach((item) => outbox.delete(item.id))
               // Compactions also coalesce by Session, not just by the proposed ID.
               if (pending.some((item) => item.type === "compaction"))

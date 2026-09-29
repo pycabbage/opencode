@@ -9,9 +9,11 @@ import { EnvironmentUnavailable } from "@opencode/core/environment/unavailable"
 import { FileSystem } from "@opencode/core/filesystem"
 import { FileSystemSearch } from "@opencode/core/filesystem/search"
 import { Pty } from "@opencode/core/pty"
+import { WorkerdR2 } from "@opencode/core/workerd/r2"
 import { Snapshot } from "@opencode/core/snapshot"
 import { Vcs } from "@opencode/core/vcs"
 import { CrossSpawnSpawner } from "@opencode/util/cross-spawn-spawner"
+import type { OpenCodeEvent } from "@opencode/protocol/groups/event"
 import type { LayerNode } from "@opencode/util/effect/layer-node"
 import { ServerFetch } from "./fetch"
 import type { ServerOptions } from "./options"
@@ -38,10 +40,19 @@ import type { ServerOptions } from "./options"
 export interface Options {
   /** Durable Object storage whose SQLite database backs the opencode database. */
   readonly storage: DurableObjectStorage
+  /**
+   * R2 bucket backing R2-sourced skills (`skills/<name>/SKILL.md`), their
+   * attachments, the durable global AGENTS.md (`agents/AGENTS.md`), and the
+   * durable opencode config (`config/opencode.json`). When omitted, R2-backed
+   * sources stay unavailable and behavior is unchanged.
+   */
+  readonly r2?: WorkerdR2.Bucket
   readonly app?: ServerOptions["app"]
   readonly password?: string
   /** Inline opencode config content (JSON), same as `ServerOptions.config.content`. */
   readonly config?: { readonly content?: string }
+  /** Synchronously publishes public events without a background stream consumer. */
+  readonly onEvent?: (event: OpenCodeEvent) => void
   /** models.dev catalog options; the bundled snapshot is the boot-time floor either way. */
   readonly models?: ServerOptions["models"]
 }
@@ -55,7 +66,7 @@ export function create(options: Options) {
   // Eviction can kill the isolate between a turn's Started and terminal events with no
   // teardown. The write-ahead execution claim plus ServerFetch.make's boot-time resume
   // recovers such orphaned turns by replaying the drain from durable history on the next wake.
-  return ServerFetch.make(serverOptions(options), { overrides: replacements(options) })
+  return ServerFetch.make(serverOptions(options), { overrides: replacements(options), onEvent: options.onEvent })
 }
 
 export function serverOptions(options: Options): ServerOptions {
@@ -76,6 +87,7 @@ export function serverOptions(options: Options): ServerOptions {
 export function replacements(options: Options): LayerNode.Replacements {
   return [
     Database.node.replace(Database.configuredClient(sqliteLayer({ storage: options.storage }))),
+    ...(options.r2 === undefined ? [] : [WorkerdR2.node.replace(WorkerdR2.layer(options.r2))]),
     CrossSpawnSpawner.node.replace(EnvironmentUnavailable.layer),
     Snapshot.node.replace(Snapshot.noopLayer),
     Vcs.node.replace(vcsLayer),

@@ -60,47 +60,31 @@ export function ephemeralEvent<Type extends EphemeralEvent["type"]>(
 }
 
 export function createSseFixture(options: FixtureOptions = {}) {
-  const encoder = new TextEncoder()
-  const streams = new Set<ReadableStreamDefaultController<Uint8Array>>()
+  const sockets = new Set<Bun.ServerWebSocket<unknown>>()
   const requests: RequestRecord[] = []
   const messages = new Map<string, SessionMessageInfo>()
 
   const send = (event: unknown) => {
-    for (const stream of streams) {
+    const payload = JSON.stringify(event)
+    for (const socket of sockets) {
       try {
-        stream.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        socket.send(payload)
       } catch {
-        streams.delete(stream)
+        sockets.delete(socket)
       }
     }
   }
 
   const server = Bun.serve({
     port: 0,
-    async fetch(request) {
+    async fetch(request, server) {
       const url = new URL(request.url)
       const body = request.method === "GET" ? undefined : await request.json().catch(() => undefined)
       requests.push({ method: request.method, path: url.pathname, ...(body === undefined ? {} : { body }) })
 
       if (url.pathname === "/api/event") {
-        const state: { stream?: ReadableStreamDefaultController<Uint8Array> } = {}
-        return new Response(
-          new ReadableStream<Uint8Array>({
-            start(stream) {
-              state.stream = stream
-              streams.add(stream)
-              stream.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ id: "evt_connected", type: "server.connected", data: {} })}\n\n`,
-                ),
-              )
-            },
-            cancel() {
-              if (state.stream) streams.delete(state.stream)
-            },
-          }),
-          { headers: { "content-type": "text/event-stream" } },
-        )
+        if (server.upgrade(request)) return
+        return new Response(null, { status: 426 })
       }
 
       const prompt = /^\/api\/session\/([^/]+)\/prompt$/.exec(url.pathname)
@@ -159,6 +143,16 @@ export function createSseFixture(options: FixtureOptions = {}) {
 
       return new Response(null, { status: 404 })
     },
+    websocket: {
+      open(socket) {
+        sockets.add(socket)
+        socket.send(JSON.stringify({ id: "evt_connected", type: "server.connected", data: {} }))
+      },
+      message() {},
+      close(socket) {
+        sockets.delete(socket)
+      },
+    },
   })
 
   return {
@@ -167,12 +161,12 @@ export function createSseFixture(options: FixtureOptions = {}) {
     requests,
     send,
     async stop() {
-      for (const stream of streams) {
+      for (const socket of sockets) {
         try {
-          stream.close()
+          socket.close()
         } catch {}
       }
-      streams.clear()
+      sockets.clear()
       await server.stop(true)
     },
   }
