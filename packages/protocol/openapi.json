@@ -1059,7 +1059,7 @@
             }
           }
         },
-        "description": "Create a session at the requested location. A parentID creates a linked child session at its parent's location.",
+        "description": "Create a session at the requested location. A child inherits its parent's location unless experimental.workspaceID selects another workspace.",
         "summary": "Create session",
         "requestBody": {
           "content": {
@@ -1121,6 +1121,29 @@
                     "anyOf": [
                       {
                         "$ref": "#/components/schemas/Location.PublicRef"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "experimental": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "workspaceID": {
+                            "anyOf": [
+                              {
+                                "$ref": "#/components/schemas/Workspace.ID"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
                       },
                       {
                         "type": "null"
@@ -2026,6 +2049,29 @@
                     "anyOf": [
                       {
                         "$ref": "#/components/schemas/Session.Inbox.Delivery"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "experimental": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "workspaceID": {
+                            "anyOf": [
+                              {
+                                "$ref": "#/components/schemas/Workspace.ID"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
                       },
                       {
                         "type": "null"
@@ -13493,6 +13539,357 @@
         "summary": "List background jobs"
       }
     },
+    "/api/experimental/workspace/providers": {
+      "get": {
+        "tags": ["experimental"],
+        "operationId": "experimental.workspace.providers",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["data"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "List registered workspace driver names. Experimental: may change without compatibility guarantees.",
+        "summary": "List workspace providers"
+      }
+    },
+    "/api/experimental/workspace": {
+      "post": {
+        "tags": ["experimental"],
+        "operationId": "experimental.workspace.create",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "$ref": "#/components/schemas/Workspace.ID"
+                        },
+                        "provider": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["id", "provider"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["data"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ProviderNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ConflictError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Allocate a workspace ID without provisioning it. Experimental: may change without compatibility guarantees.",
+        "summary": "Create workspace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/Workspace.ID"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "type": "string"
+                  }
+                },
+                "required": ["provider"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/experimental/workspace/{workspaceID}": {
+      "post": {
+        "tags": ["experimental"],
+        "operationId": "experimental.workspace.provision",
+        "parameters": [
+          {
+            "name": "workspaceID",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/Workspace.ID"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "$ref": "#/components/schemas/Workspace.ID"
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["Infinity", "-Infinity", "NaN"]
+                            }
+                          ]
+                        },
+                        "lastUsedAt": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["Infinity", "-Infinity", "NaN"]
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["id", "provider", "createdAt", "lastUsedAt"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["data"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "WorkspaceNotFoundError | ProviderNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/WorkspaceNotFoundErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ProviderNotFoundErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Ensure the backing resource is ready. Experimental: may change without compatibility guarantees.",
+        "summary": "Provision workspace"
+      },
+      "delete": {
+        "tags": ["experimental"],
+        "operationId": "experimental.workspace.destroy",
+        "parameters": [
+          {
+            "name": "workspaceID",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/Workspace.ID"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/WorkspaceDestroyResult"
+                    }
+                  },
+                  "required": ["data"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ProviderNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Release the provider resource and remove the workspace. Experimental: may change without compatibility guarantees.",
+        "summary": "Destroy workspace"
+      }
+    },
     "/api/shell": {
       "get": {
         "tags": ["shell"],
@@ -16684,6 +17081,9 @@
                 "type": "boolean"
               },
               "codemode_vm": {
+                "type": "boolean"
+              },
+              "workspaces": {
                 "type": "boolean"
               },
               "part_rows": {
@@ -26014,6 +26414,35 @@
       "Workspace.ID": {
         "type": "string",
         "pattern": "^wrk"
+      },
+      "WorkspaceDestroyResult": {
+        "type": "object",
+        "properties": {
+          "destroyed": {
+            "type": "boolean",
+            "description": "True when this request transitioned the workspace from existing to destroyed."
+          }
+        },
+        "required": ["destroyed"],
+        "additionalProperties": false,
+        "description": "Reports whether this request destroyed an existing workspace."
+      },
+      "WorkspaceNotFoundErrorEncoded": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["WorkspaceNotFoundError"]
+          },
+          "workspaceID": {
+            "$ref": "#/components/schemas/Workspace.ID"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "workspaceID", "message"],
+        "additionalProperties": false
       },
       "Worktree.CreateInput": {
         "type": "object",
